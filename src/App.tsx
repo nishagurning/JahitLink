@@ -42,7 +42,24 @@ type Order = {
   pickedUpAt: string | null;
 };
 
-const STORAGE_KEY = "jahitlink.orders.v1";
+type TrackingOrder = Pick<
+  Order,
+  "id" | "createdAt" | "customer" | "service" | "garment" | "model" | "dueDate" | "fittingDate" | "total" | "progress"
+> & { paid: number };
+
+type AuthStatus = {
+  setupRequired: boolean;
+  authenticated: boolean;
+  username: string | null;
+};
+
+class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 const statuses: ProgressStatus[] = [
   "Menunggu konfirmasi",
   "Menunggu pengerjaan",
@@ -53,50 +70,23 @@ const statuses: ProgressStatus[] = [
   "Selesai",
 ];
 
-const today = "2026-11-06";
-const sampleOrder: Order = {
-  id: "JL-001",
-  token: "c2a8f3d9-5248-4ed8-9d2b-6e9d8bd4f9aa",
-  createdAt: today,
-  customer: "Rina",
-  phone: "08xx-xxxx-xxxx",
-  service: "Jahit baru",
-  garment: "1 kemeja wanita",
-  model: "Lengan panjang, kerah biasa, kancing depan",
-  material: "Katun biru muda dari pelanggan",
-  materialAmount: "2 meter",
-  note: "Untuk acara 20 November, jangan terlalu ketat.",
-  measurements: {
-    "Lingkar badan": "92",
-    "Lingkar pinggang": "78",
-    "Lebar bahu": "38",
-    "Panjang baju": "65",
-    "Panjang lengan": "54",
-    "Lingkar lengan atas": "30",
-  },
-  fittingDate: "2026-11-13",
-  dueDate: "2026-11-16",
-  total: 180000,
-  payments: [{ amount: 80000, method: "Tunai", date: today }],
-  progress: [
-    { status: "Menunggu pengerjaan", note: "Pesanan dan bahan diterima.", date: today },
-  ],
-  pickedUpAt: null,
-};
-
-function loadOrders(): Order[] {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (!saved) return [sampleOrder];
-    const parsed: unknown = JSON.parse(saved);
-    if (!Array.isArray(parsed)) {
-      throw new Error("Format data pesanan tidak valid.");
-    }
-    return parsed as Order[];
-  } catch (error) {
-    console.error("Gagal membaca pesanan dari penyimpanan lokal.", error);
-    return [sampleOrder];
+async function apiRequest<T>(url: string, options: RequestInit = {}): Promise<T> {
+  const response = await fetch(url, {
+    ...options,
+    credentials: "same-origin",
+    headers: {
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...options.headers,
+    },
+  });
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message = typeof payload === "object" && payload !== null && "error" in payload && typeof payload.error === "string"
+      ? payload.error
+      : `Permintaan gagal (${response.status}).`;
+    throw new ApiError(message, response.status);
   }
+  return payload as T;
 }
 
 function formatCurrency(value: number): string {
@@ -147,13 +137,17 @@ function initialForm() {
 }
 
 function App() {
-  const [orders, setOrders] = useState<Order[]>(loadOrders);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
+  const [startupError, setStartupError] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [showCustomerRequest, setShowCustomerRequest] = useState(false);
-  const [requestSuccess, setRequestSuccess] = useState<Order | null>(null);
   const [trackError, setTrackError] = useState("");
+  const [trackingOrder, setTrackingOrder] = useState<TrackingOrder | null>(null);
+  const [trackingLoading, setTrackingLoading] = useState(Boolean(window.location.pathname.match(/^\/track\/([^/]+)\/?$/)?.[1]));
+  const [trackingLoadError, setTrackingLoadError] = useState("");
   const [query, setQuery] = useState("");
+  const [orderFilter, setOrderFilter] = useState<ProgressStatus | "Semua">("Semua");
   const [notice, setNotice] = useState("");
   const [newStatus, setNewStatus] = useState<ProgressStatus>("Dalam pengerjaan");
   const [progressNote, setProgressNote] = useState("");
@@ -162,20 +156,74 @@ function App() {
   const [quoteAmount, setQuoteAmount] = useState("");
 
   const trackingToken = window.location.pathname.match(/^\/track\/([^/]+)\/?$/)?.[1];
-  const trackingOrder = trackingToken
-    ? orders.find((order) => order.token === trackingToken)
-    : undefined;
   const selectedOrder = orders.find((order) => order.id === selectedId);
   const isAdminRoute = window.location.pathname === "/admin" || window.location.pathname.startsWith("/admin/");
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(orders));
-    } catch (error) {
-      console.error("Gagal menyimpan pesanan di browser.", error);
-      setNotice("Pesanan tidak dapat disimpan di browser ini.");
+    let active = true;
+    if (trackingToken) {
+      const loadTrackingOrder = async () => {
+        try {
+          const result = await apiRequest<{ order: TrackingOrder }>(`/api/track/${encodeURIComponent(trackingToken)}`);
+          if (active) {
+            setTrackingOrder(result.order);
+            setTrackingLoadError("");
+            setTrackingLoading(false);
+          }
+        } catch (error) {
+          console.error("Gagal memuat pelacakan pesanan.", error);
+          if (active) {
+            setTrackingOrder(null);
+            setTrackingLoadError(error instanceof Error ? error.message : "Pelacakan pesanan gagal dimuat.");
+            setTrackingLoading(false);
+          }
+        }
+      };
+      void loadTrackingOrder();
+      const interval = window.setInterval(() => void loadTrackingOrder(), 15_000);
+      return () => {
+        active = false;
+        window.clearInterval(interval);
+      };
     }
-  }, [orders]);
+
+    if (!isAdminRoute) return () => { active = false; };
+    const loadAuthStatus = async () => {
+      try {
+        const status = await apiRequest<AuthStatus>("/api/auth/status");
+        if (!active) return;
+        setAuthStatus(status);
+        if (status.authenticated) {
+          const result = await apiRequest<{ orders: Order[] }>("/api/orders");
+          if (active) setOrders(result.orders);
+        } else {
+          setOrders([]);
+        }
+        setStartupError("");
+      } catch (error) {
+        console.error("Gagal menghubungi backend JahitLink.", error);
+        if (active) setStartupError("Backend belum dapat dihubungi. Jalankan `npm run dev` untuk memulai aplikasi dan API.");
+      }
+    };
+    void loadAuthStatus();
+    return () => { active = false; };
+  }, [isAdminRoute, trackingToken]);
+
+  useEffect(() => {
+    if (!isAdminRoute || !authStatus?.authenticated) return;
+    const interval = window.setInterval(() => {
+      void apiRequest<{ orders: Order[] }>("/api/orders")
+        .then((result) => setOrders(result.orders))
+        .catch((error: unknown) => {
+          console.error("Gagal memperbarui pesanan.", error);
+          if (error instanceof Error && error.message.includes("Sesi admin")) {
+            setAuthStatus((current) => current ? { ...current, authenticated: false } : current);
+            setOrders([]);
+          }
+        });
+    }, 30_000);
+    return () => window.clearInterval(interval);
+  }, [authStatus?.authenticated, isAdminRoute]);
 
   useEffect(() => {
     if (!notice) return;
@@ -185,70 +233,34 @@ function App() {
 
   const filteredOrders = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("id");
-    if (!normalized) return orders;
-    return orders.filter((order) =>
-      `${order.id} ${order.customer} ${order.garment}`.toLocaleLowerCase("id").includes(normalized),
-    );
-  }, [orders, query]);
+    return orders.filter((order) => {
+      const matchesQuery = !normalized
+        || `${order.id} ${order.customer} ${order.garment}`.toLocaleLowerCase("id").includes(normalized);
+      const status = order.progress.at(-1)?.status ?? "Menunggu pengerjaan";
+      return matchesQuery && (orderFilter === "Semua" || status === orderFilter);
+    });
+  }, [orders, orderFilter, query]);
 
   const openNewOrder = () => setShowCreate(true);
 
-  function openCustomerTracking(event: FormEvent<HTMLFormElement>) {
+  async function openCustomerTracking(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
     const submitted = String(formData.get("tracking-link") ?? "").trim();
     const token = submitted.match(/\/track\/([^/?#]+)/)?.[1] ?? submitted;
-    const order = orders.find((item) => item.token === token || item.id.toLowerCase() === token.toLowerCase());
-    if (!order) {
-      setTrackError("Pesanan tidak ditemukan. Pastikan kode benar dan gunakan browser tempat pesanan dibuat.");
+    if (!/^[a-f0-9]{64}$/.test(token)) {
+      setTrackError("Masukkan kode atau tautan pelacakan yang diberikan admin.");
       return;
     }
-    window.location.href = `/track/${order.token}`;
+    try {
+      await apiRequest<{ order: TrackingOrder }>(`/api/track/${encodeURIComponent(token)}`);
+      window.location.href = `/track/${token}`;
+    } catch {
+      setTrackError("Pesanan tidak ditemukan. Periksa kembali kode atau tautan pelacakan.");
+    }
   }
 
-  function createCustomerRequest(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const formData = new FormData(event.currentTarget);
-    const form = Object.fromEntries(formData.entries());
-    const nextNumber = Math.max(
-      0,
-      ...orders.map((order) => Number(order.id.replace("JL-", "")) || 0),
-    ) + 1;
-    const date = new Date().toISOString().slice(0, 10);
-    const order: Order = {
-      id: `JL-${String(nextNumber).padStart(3, "0")}`,
-      token: crypto.randomUUID(),
-      createdAt: date,
-      customer: String(form.customer).trim(),
-      phone: String(form.phone).trim(),
-      service: String(form.service),
-      garment: String(form.garment).trim(),
-      model: String(form.model).trim(),
-      material: String(form.material).trim(),
-      materialAmount: "",
-      note: String(form.note).trim(),
-      measurements: {},
-      fittingDate: "",
-      dueDate: String(form.dueDate),
-      total: 0,
-      payments: [],
-      progress: [{
-        status: "Menunggu konfirmasi",
-        note: "Permintaan jahit diterima. Penjahit akan menghubungi untuk konfirmasi detail dan biaya.",
-        date,
-      }],
-      pickedUpAt: null,
-    };
-    setOrders((current) => [order, ...current]);
-    setRequestSuccess(order);
-    setShowCustomerRequest(false);
-  }
-
-  function openTracking(order: Order) {
-    window.location.href = `/track/${order.token}`;
-  }
-
-  function createOrder(event: FormEvent<HTMLFormElement>) {
+  async function createOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
     const form = Object.fromEntries(formData.entries());
@@ -264,54 +276,34 @@ function App() {
       measurements[label] = String(form[`measurement:${label}`] ?? "");
     }
 
-    const nextNumber = Math.max(
-      0,
-      ...orders.map((order) => Number(order.id.replace("JL-", "")) || 0),
-    ) + 1;
-    const date = new Date().toISOString().slice(0, 10);
-    const order: Order = {
-      id: `JL-${String(nextNumber).padStart(3, "0")}`,
-      token: crypto.randomUUID(),
-      createdAt: date,
-      customer: String(form.customer).trim(),
-      phone: String(form.phone).trim(),
-      service: String(form.service),
-      garment: String(form.garment).trim(),
-      model: String(form.model).trim(),
-      material: String(form.material).trim(),
-      materialAmount: String(form.materialAmount).trim(),
-      note: String(form.note).trim(),
-      measurements,
-      fittingDate: String(form.fittingDate),
-      dueDate: String(form.dueDate),
-      total,
-      payments: deposit > 0
-        ? [{ amount: deposit, method: String(form.paymentMethod), date }]
-        : [],
-      progress: [{ status: "Menunggu pengerjaan", note: "Pesanan diterima.", date }],
-      pickedUpAt: null,
-    };
-
-    setOrders((current) => [order, ...current]);
-    setSelectedId(order.id);
-    setShowCreate(false);
-    setNotice(`${order.id} berhasil dibuat.`);
+    try {
+      const result = await apiRequest<{ order: Order }>("/api/orders", {
+        method: "POST",
+        body: JSON.stringify({
+          ...form,
+          total,
+          deposit,
+          measurements,
+        }),
+      });
+      setOrders((current) => [result.order, ...current]);
+      setSelectedId(result.order.id);
+      setShowCreate(false);
+      setNotice(`${result.order.id} berhasil dibuat.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Pesanan gagal dibuat.");
+    }
   }
 
   function updateProgress(order: Order) {
-    const date = new Date().toISOString().slice(0, 10);
-    const next: ProgressUpdate = {
-      status: newStatus,
-      note: progressNote.trim() || `Status diperbarui menjadi ${newStatus}.`,
-      date,
-    };
-    setOrders((current) =>
-      current.map((item) =>
-        item.id === order.id ? { ...item, progress: [...item.progress, next] } : item,
-      ),
-    );
-    setProgressNote("");
-    setNotice("Progres pesanan diperbarui.");
+    void apiRequest<{ order: Order }>(`/api/orders/${order.id}/progress`, {
+      method: "POST",
+      body: JSON.stringify({ status: newStatus, note: progressNote.trim() }),
+    }).then(({ order: updated }) => {
+      setOrders((current) => current.map((item) => item.id === order.id ? updated : item));
+      setProgressNote("");
+      setNotice("Progres pesanan diperbarui.");
+    }).catch((error: unknown) => setNotice(error instanceof Error ? error.message : "Progres gagal diperbarui."));
   }
 
   function addPayment(order: Order) {
@@ -321,18 +313,14 @@ function App() {
       setNotice(`Masukkan pembayaran antara Rp1 dan ${formatCurrency(balance)}.`);
       return;
     }
-    const payment = {
-      amount,
-      method: paymentMethod,
-      date: new Date().toISOString().slice(0, 10),
-    };
-    setOrders((current) =>
-      current.map((item) =>
-        item.id === order.id ? { ...item, payments: [...item.payments, payment] } : item,
-      ),
-    );
-    setPaymentAmount("");
-    setNotice("Pembayaran berhasil dicatat.");
+    void apiRequest<{ order: Order }>(`/api/orders/${order.id}/payments`, {
+      method: "POST",
+      body: JSON.stringify({ amount, method: paymentMethod }),
+    }).then(({ order: updated }) => {
+      setOrders((current) => current.map((item) => item.id === order.id ? updated : item));
+      setPaymentAmount("");
+      setNotice("Pembayaran berhasil dicatat.");
+    }).catch((error: unknown) => setNotice(error instanceof Error ? error.message : "Pembayaran gagal dicatat."));
   }
 
   function setOrderQuote(order: Order) {
@@ -341,31 +329,24 @@ function App() {
       setNotice("Masukkan biaya pesanan yang valid.");
       return;
     }
-    setOrders((current) =>
-      current.map((item) => item.id === order.id ? { ...item, total } : item),
-    );
-    setQuoteAmount("");
-    setNotice("Estimasi biaya berhasil disimpan.");
+    void apiRequest<{ order: Order }>(`/api/orders/${order.id}/quote`, {
+      method: "POST",
+      body: JSON.stringify({ total }),
+    }).then(({ order: updated }) => {
+      setOrders((current) => current.map((item) => item.id === order.id ? updated : item));
+      setQuoteAmount("");
+      setNotice("Estimasi biaya berhasil disimpan.");
+    }).catch((error: unknown) => setNotice(error instanceof Error ? error.message : "Estimasi biaya gagal disimpan."));
   }
 
   function markPickedUp(order: Order) {
     if (order.pickedUpAt) return;
-    const date = new Date().toISOString().slice(0, 10);
-    setOrders((current) =>
-      current.map((item) =>
-        item.id === order.id
-          ? {
-              ...item,
-              pickedUpAt: date,
-              progress: [
-                ...item.progress,
-                { status: "Selesai", note: "Pesanan telah diambil pelanggan.", date },
-              ],
-            }
-          : item,
-      ),
-    );
-    setNotice("Pengambilan pesanan telah dicatat.");
+    void apiRequest<{ order: Order }>(`/api/orders/${order.id}/pickup`, { method: "POST" })
+      .then(({ order: updated }) => {
+        setOrders((current) => current.map((item) => item.id === order.id ? updated : item));
+        setNotice("Pengambilan pesanan telah dicatat.");
+      })
+      .catch((error: unknown) => setNotice(error instanceof Error ? error.message : "Pengambilan gagal dicatat."));
   }
 
   async function copyTrackingLink(order: Order) {
@@ -379,29 +360,52 @@ function App() {
     }
   }
 
+  async function handleAdminAuthenticated() {
+    try {
+      const [status, result] = await Promise.all([
+        apiRequest<AuthStatus>("/api/auth/status"),
+        apiRequest<{ orders: Order[] }>("/api/orders"),
+      ]);
+      setAuthStatus({ ...status, authenticated: true });
+      setOrders(result.orders);
+      setStartupError("");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Gagal memuat data admin.");
+    }
+  }
+
+  async function logoutAdmin() {
+    try {
+      await apiRequest("/api/auth/logout", { method: "POST" });
+      setAuthStatus((current) => current ? { ...current, authenticated: false } : current);
+      setOrders([]);
+      setSelectedId(null);
+      setNotice("");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Gagal keluar dari akun.");
+    }
+  }
+
   if (trackingToken) {
-    return trackingOrder
-      ? <TrackingPage order={trackingOrder} />
-      : <NotFoundPage />;
+    if (trackingLoading) return <main className="tracking-page"><div className="tracking-content">Memuat informasi pesanan...</div></main>;
+    if (trackingOrder) return <TrackingPage order={trackingOrder} />;
+    if (trackingLoadError && !trackingLoadError.includes("tidak ditemukan")) {
+      return <main className="not-found"><h1>Pelacakan belum tersedia</h1><p>{trackingLoadError}</p><a className="button button-primary" href="/">Kembali</a></main>;
+    }
+    return <NotFoundPage />;
   }
   if (!isAdminRoute) {
-    return (
-      <>
-        <CustomerLanding
-          successOrder={requestSuccess}
-          trackError={trackError}
-          onRequest={() => { setTrackError(""); setShowCustomerRequest(true); }}
-          onTrack={openCustomerTracking}
-          onOpenTracking={openTracking}
-        />
-        {showCustomerRequest && (
-          <CustomerRequestModal
-            onClose={() => setShowCustomerRequest(false)}
-            onSubmit={createCustomerRequest}
-          />
-        )}
-      </>
-    );
+    return <CustomerLanding trackError={trackError} onTrack={openCustomerTracking} />;
+  }
+
+  if (startupError) {
+    return <main className="admin-access-page"><section className="admin-access-card"><p className="admin-access-error" role="alert">{startupError}</p></section></main>;
+  }
+  if (!authStatus) {
+    return <main className="admin-access-page"><section className="admin-access-card">Menghubungkan ke backend...</section></main>;
+  }
+  if (!authStatus.authenticated) {
+    return <AdminAccess setupRequired={authStatus.setupRequired} onAuthenticated={() => void handleAdminAuthenticated()} />;
   }
 
   const currentStatus = (order: Order) => order.progress.at(-1)?.status ?? "Menunggu pengerjaan";
@@ -431,8 +435,8 @@ function App() {
 
       <main className="main-content">
         <header className="topbar">
-          <div className="breadcrumb"><a href="/">JahitLink</a> <span>/</span> Dashboard pemilik</div>
-          <div className="topbar-right"><a href="/" className="customer-site-link">Lihat halaman pelanggan ↗</a><span className="online-dot" /> Data lokal</div>
+          <div className="breadcrumb"><a href="/">JahitLink</a> <span>/</span> Ruang kerja</div>
+          <div className="topbar-right"><a href="/" className="customer-site-link">Lihat halaman pelanggan ↗</a><span className="online-dot" /> Database<button className="logout-button" type="button" onClick={() => void logoutAdmin()}>Keluar</button></div>
         </header>
 
         <div className="page-wrap">
@@ -461,9 +465,9 @@ function App() {
             <>
               <div className="page-heading">
                 <div>
-                  <p className="eyebrow">MANAJEMEN STUDIO</p>
-                  <h1>Pesanan</h1>
-                  <p className="muted">Kelola jahitan, pembaruan progres, dan pembayaran.</p>
+                  <p className="eyebrow">DASHBOARD ADMIN &amp; PENJAHIT</p>
+                  <h1>Ruang kerja</h1>
+                  <p className="muted">Pantau pesanan, progres jahitan, jadwal, dan pembayaran dalam satu tempat.</p>
                 </div>
                 <button className="button button-primary" type="button" onClick={openNewOrder}>
                   <span className="button-plus">＋</span> Pesanan baru
@@ -494,7 +498,7 @@ function App() {
 
               <section className="panel orders-panel">
                 <div className="panel-heading">
-                  <div><h2>Semua pesanan</h2><p>{orders.length} pesanan tercatat</p></div>
+                  <div><h2>Daftar pekerjaan</h2><p>{filteredOrders.length} dari {orders.length} pesanan</p></div>
                   <label className="search-box">
                     <span>⌕</span>
                     <input
@@ -504,6 +508,24 @@ function App() {
                       onChange={(event) => setQuery(event.target.value)}
                     />
                   </label>
+                </div>
+                <div className="order-filters" role="group" aria-label="Filter status pesanan">
+                  {(["Semua", ...statuses] as const).map((status) => {
+                    const count = status === "Semua"
+                      ? orders.length
+                      : orders.filter((order) => (order.progress.at(-1)?.status ?? "Menunggu pengerjaan") === status).length;
+                    return (
+                      <button
+                        key={status}
+                        className={`order-filter${orderFilter === status ? " active" : ""}`}
+                        type="button"
+                        aria-pressed={orderFilter === status}
+                        onClick={() => setOrderFilter(status)}
+                      >
+                        {status}<span>{count}</span>
+                      </button>
+                    );
+                  })}
                 </div>
                 <div className="table-scroll">
                   <table>
@@ -533,7 +555,7 @@ function App() {
                   </table>
                 </div>
               </section>
-              <p className="prototype-note"><span>ⓘ</span> Ini prototipe lokal. Data hanya tersimpan di browser yang sedang digunakan.</p>
+              <p className="prototype-note"><span>ⓘ</span> Data pesanan disimpan di database server.</p>
             </>
           )}
         </div>
@@ -547,6 +569,70 @@ function App() {
       )}
       {notice && <div className="toast" role="status">{notice}</div>}
     </div>
+  );
+}
+
+function AdminAccess({ setupRequired, onAuthenticated }: { setupRequired: boolean; onAuthenticated: () => void }) {
+  const isSetup = setupRequired;
+  const [error, setError] = useState("");
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    const form = new FormData(event.currentTarget);
+    const username = String(form.get("username") ?? "").trim();
+    const password = String(form.get("password") ?? "");
+    try {
+      if (isSetup) {
+        const confirmation = String(form.get("confirmPassword") ?? "");
+        if (username.length < 3) {
+          setError("Nama pengguna harus terdiri dari minimal 3 karakter.");
+          return;
+        }
+        if (password.length < 10) {
+          setError("Kata sandi harus terdiri dari minimal 10 karakter.");
+          return;
+        }
+        if (password !== confirmation) {
+          setError("Konfirmasi kata sandi tidak cocok.");
+          return;
+        }
+      }
+      await apiRequest(isSetup ? "/api/auth/setup" : "/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ username, password }),
+      });
+      onAuthenticated();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Login tidak dapat diproses.");
+    }
+  }
+
+  return (
+    <main className="admin-access-page">
+      <section className="admin-access-card">
+        <a className="brand" href="/" aria-label="Kembali ke JahitLink">
+          <span className="brand-mark">J</span>
+          <span>jahit<span className="brand-accent">link</span></span>
+        </a>
+        <p className="eyebrow">{isSetup ? "PENGATURAN ADMIN" : "AREA TERBATAS"}</p>
+        <h1>{isSetup ? "Buat akun admin" : "Masuk ke ruang kerja"}</h1>
+        <p className="admin-access-description">
+          {isSetup
+            ? "Buat akun admin pertama untuk mengelola data studio."
+            : "Masuk untuk membuat dan mengelola pesanan jahit."}
+        </p>
+        <form className="admin-access-form" onSubmit={(event) => void submit(event)}>
+          <label>Nama pengguna<input name="username" required minLength={3} autoComplete="username" /></label>
+          <label>Kata sandi<input name="password" type="password" required minLength={isSetup ? 10 : 1} autoComplete={isSetup ? "new-password" : "current-password"} /></label>
+          {isSetup && <label>Ulangi kata sandi<input name="confirmPassword" type="password" required minLength={10} autoComplete="new-password" /></label>}
+          {error && <p className="admin-access-error" role="alert">{error}</p>}
+          <button className="button button-primary button-full" type="submit">{isSetup ? "Buat akun dan masuk" : "Masuk"}</button>
+        </form>
+        <p className="admin-access-note">Kredensial diperiksa oleh server. Sesi berakhir otomatis setelah 8 jam.</p>
+        <a className="admin-access-home" href="/">← Kembali ke halaman pelanggan</a>
+      </section>
+    </main>
   );
 }
 
@@ -723,11 +809,8 @@ function InfoField({ label, value, wide = false }: { label: string; value: strin
 }
 
 function CustomerLanding(props: {
-  successOrder: Order | null;
   trackError: string;
-  onRequest: () => void;
   onTrack: (event: FormEvent<HTMLFormElement>) => void;
-  onOpenTracking: (order: Order) => void;
 }) {
   return (
     <main className="storefront">
@@ -741,8 +824,8 @@ function CustomerLanding(props: {
         <div className="hero-copy">
           <span className="hero-kicker"><span /> JAHITAN PERSONAL, HASIL ISTIMEWA</span>
           <h1>Jahitan yang pas,<br /><em>untuk ceritamu.</em></h1>
-          <p>Wujudkan pakaian sesuai ukuran dan gayamu. Ceritakan kebutuhan jahitanmu, lalu pantau prosesnya dengan mudah.</p>
-          <div className="hero-actions"><button className="button button-primary" type="button" onClick={props.onRequest}>Mulai pesan jahitan <span>→</span></button><a href="#cara-pesan" className="text-link">Pelajari cara pesan <span>↓</span></a></div>
+          <p>Wujudkan pakaian sesuai ukuran dan gayamu. Pesanan dicatat langsung oleh admin atau penjahit studio.</p>
+          <div className="hero-actions"><a href="#lacak" className="button button-primary">Lacak pesanan <span>→</span></a><a href="#cara-pesan" className="text-link">Pelajari proses <span>↓</span></a></div>
           <div className="hero-note"><span className="hero-note-check">✓</span> Ukuran personal <span className="hero-note-divider">·</span> Progres transparan <span className="hero-note-divider">·</span> Konsultasi langsung</div>
         </div>
         <div className="hero-art" aria-label="Ilustrasi busana dan pola jahit">
@@ -763,10 +846,10 @@ function CustomerLanding(props: {
       </section>
 
       <section id="cara-pesan" className="how-section">
-        <div><p className="eyebrow">MUDAH DAN JELAS</p><h2>Pesan, pantau,<br />lalu kenakan.</h2><p className="how-copy">Kamu selalu tahu pesananmu sedang dikerjakan sampai siap diambil.</p><button className="button button-primary" type="button" onClick={props.onRequest}>Ajukan pesanan <span>→</span></button></div>
+        <div><p className="eyebrow">MUDAH DAN JELAS</p><h2>Pesan, pantau,<br />lalu kenakan.</h2><p className="how-copy">Admin atau penjahit mencatat pesanan di studio. Pelanggan dapat memantau progres melalui kode pelacakan.</p></div>
         <div className="how-steps">
-          <div className="how-step"><span>01</span><div><strong>Ceritakan jahitanmu</strong><p>Isi jenis pakaian, model, dan kebutuhanmu.</p></div></div>
-          <div className="how-step"><span>02</span><div><strong>Konfirmasi dengan penjahit</strong><p>Penjahit menghubungi untuk ukuran, biaya, dan jadwal.</p></div></div>
+          <div className="how-step"><span>01</span><div><strong>Konsultasi di studio</strong><p>Diskusikan jenis pakaian, model, dan kebutuhan dengan penjahit.</p></div></div>
+          <div className="how-step"><span>02</span><div><strong>Pesanan dicatat admin</strong><p>Admin atau penjahit memasukkan detail, ukuran, biaya, dan jadwal.</p></div></div>
           <div className="how-step"><span>03</span><div><strong>Pantau sampai selesai</strong><p>Lihat progres dan sisa pembayaran melalui tautan khusus.</p></div></div>
         </div>
       </section>
@@ -774,51 +857,18 @@ function CustomerLanding(props: {
       <section id="lacak" className="track-section">
         <div className="track-section-copy"><span className="track-icon">◷</span><div><h2>Sudah punya pesanan?</h2><p>Masukkan kode atau tautan pelacakan untuk melihat kabar terbaru.</p></div></div>
         <div className="track-box">
-          {props.successOrder ? (
-            <div className="request-success">
-              <span className="success-check">✓</span><div><strong>Permintaan terkirim · {props.successOrder.id}</strong><p>Penjahit akan menghubungimu untuk mengonfirmasi detail dan biaya.</p></div>
-              <button className="button button-primary" type="button" onClick={() => props.onOpenTracking(props.successOrder!)}>Lihat status</button>
-            </div>
-          ) : (
-            <form className="tracking-lookup" onSubmit={props.onTrack}>
-              <label className="sr-only" htmlFor="tracking-link">Kode atau tautan pelacakan</label>
-              <input id="tracking-link" name="tracking-link" required placeholder="Masukkan kode atau tautan pesanan" />
-              <button className="button button-dark" type="submit">Lacak pesanan →</button>
-            </form>
-          )}
+          <form className="tracking-lookup" onSubmit={props.onTrack}>
+            <label className="sr-only" htmlFor="tracking-link">Kode atau tautan pelacakan</label>
+            <input id="tracking-link" name="tracking-link" required placeholder="Masukkan kode atau tautan dari admin" />
+            <button className="button button-dark" type="submit">Lacak pesanan →</button>
+          </form>
           {props.trackError && <p className="track-error" role="alert">{props.trackError}</p>}
         </div>
       </section>
 
       <footer className="storefront-footer"><a className="brand" href="/"><span className="brand-mark">J</span><span>jahit<span className="brand-accent">link</span></span></a><span>Merawat detail, menjahit cerita.</span><a href="/admin">Portal pemilik usaha ↗</a></footer>
-      <p className="prototype-note storefront-note"><span>ⓘ</span> Prototipe lokal: permintaan hanya tersimpan di browser ini dan belum dikirim ke penjahit.</p>
+      <p className="prototype-note storefront-note"><span>ⓘ</span> Prototipe lokal: pesanan dicatat admin dan tersimpan di browser ini.</p>
     </main>
-  );
-}
-
-function CustomerRequestModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
-  return (
-    <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="modal-card customer-request-modal" role="dialog" aria-modal="true" aria-labelledby="request-title">
-        <div className="modal-header"><div><p className="eyebrow">MULAI PESANAN</p><h2 id="request-title">Ceritakan jahitanmu</h2><p>Penjahit akan menghubungi untuk konfirmasi ukuran, biaya, dan jadwal.</p></div><button className="close-button" type="button" onClick={onClose} aria-label="Tutup">×</button></div>
-        <form onSubmit={onSubmit}>
-          <div className="form-section"><h3>Kontak kamu</h3><div className="form-grid">
-            <label>Nama<input name="customer" required autoComplete="name" placeholder="Nama lengkap" /></label>
-            <label>Nomor WhatsApp<input name="phone" required autoComplete="tel" placeholder="08xx-xxxx-xxxx" /></label>
-          </div></div>
-          <div className="form-section"><h3>Keinginan jahitan</h3><div className="form-grid">
-            <label>Jenis layanan<select name="service"><option>Jahit baru</option><option>Permak</option><option>Perbaikan</option></select></label>
-            <label>Jenis pakaian<input name="garment" required placeholder="Contoh: kemeja wanita" /></label>
-            <label className="full">Model atau gaya yang diinginkan<input name="model" placeholder="Ceritakan model atau detailnya" /></label>
-            <label>Bahan<input name="material" placeholder="Sudah punya bahan? Sebutkan di sini" /></label>
-            <label>Target selesai<input name="dueDate" type="date" /></label>
-            <label className="full">Catatan tambahan<textarea name="note" rows={3} placeholder="Contoh: untuk acara, warna pilihan, atau kebutuhan khusus" /></label>
-          </div></div>
-          <div className="request-privacy">🔒 Ukuran badan tidak diminta di formulir ini. Penjahit akan mengatur pengukuran setelah menghubungi kamu.</div>
-          <div className="modal-footer"><button className="button button-secondary" type="button" onClick={onClose}>Batal</button><button className="button button-primary" type="submit">Kirim permintaan →</button></div>
-        </form>
-      </section>
-    </div>
   );
 }
 
@@ -858,9 +908,9 @@ function CreateOrderModal({ onClose, onSubmit }: { onClose: () => void; onSubmit
   );
 }
 
-function TrackingPage({ order, embedded = false }: { order: Order; embedded?: boolean }) {
+function TrackingPage({ order, embedded = false }: { order: TrackingOrder; embedded?: boolean }) {
   const latest = order.progress.at(-1);
-  const balance = Math.max(0, order.total - getPaid(order));
+  const balance = Math.max(0, order.total - order.paid);
   return (
     <main className={`tracking-page ${embedded ? "embedded" : ""}`}>
       {!embedded && <header className="tracking-header"><a className="brand" href="/"><span className="brand-mark">J</span><span>jahit<span className="brand-accent">link</span></span></a><span className="tracking-label">PELACAKAN PESANAN</span></header>}
