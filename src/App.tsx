@@ -1139,14 +1139,13 @@ function CustomerLanding(props: {
         </div>
         <div className="hero-art">
           <img src="/hero-sewing-photo.jpg" alt="Mesin jahit antik Husqvarna berwarna hijau di atas meja kayu" />
-          <a className="hero-photo-credit" href="https://commons.wikimedia.org/wiki/File:Antique_Husqvarna_sewing_machine_(44201160084).jpg" target="_blank" rel="noreferrer">Foto: Thomas Quine · CC BY 2.0</a>
         </div>
       </section>
 
       <section id="layanan" className="storefront-services">
         <div className="section-heading"><div><p className="eyebrow"><span aria-hidden="true">✦</span> LAYANAN JAHIT</p><h2>Dari ide, jadi pakaian favorit.<span className="heading-spark" aria-hidden="true">♡</span></h2></div><p>Jahitan dibuat sesuai kebutuhanmu, dengan detail yang dibicarakan bersama penjahit.</p></div>
         <div className="service-cards">
-          <article className="service-card service-card-lavender"><span className="service-icon lavender" aria-hidden="true">👗</span><div><h3>Jahit pakaian baru</h3><p>Buat pakaian dengan model, bahan, dan ukuran pilihanmu.</p></div><span className="service-arrow" aria-hidden="true">→</span></article>
+          <article className="service-card service-card-lavender"><img className="service-icon lavender service-icon-image" src="/gaun.png" alt="Gaun" /><div><h3>Jahit pakaian baru</h3><p>Buat pakaian dengan model, bahan, dan ukuran pilihanmu.</p></div><span className="service-arrow" aria-hidden="true">→</span></article>
           <article className="service-card service-card-peach"><span className="service-icon peach" aria-hidden="true">👔</span><div><h3>Permak pakaian</h3><p>Sesuaikan jahitan, ukuran, atau potongan agar nyaman dipakai.</p></div><span className="service-arrow" aria-hidden="true">→</span></article>
           <article className="service-card service-card-green"><span className="service-icon mint" aria-hidden="true">✂️</span><div><h3>Perbaikan jahitan</h3><p>Perbaiki pakaian kesayangan agar bisa dipakai kembali.</p></div><span className="service-arrow" aria-hidden="true">→</span></article>
         </div>
@@ -1178,7 +1177,7 @@ function CustomerLanding(props: {
         <nav className="storefront-footer-nav" aria-label="Navigasi footer"><a href="/">Beranda</a><a href="#layanan">Layanan</a><a href="#cara-pesan">Tentang kami</a><a href="#lacak">Bantuan</a></nav>
         <div className="storefront-footer-account"><a href="/pelanggan"><span aria-hidden="true">♟</span> Akun pelanggan</a><a href="/admin">Portal pemilik usaha ↗</a></div>
       </footer>
-      <div className="storefront-bottom"><span>© 2026 Jahitlink. Semua hak dilindungi.</span><span>Merawat detail, menjahit cerita.</span></div>
+      <div className="storefront-bottom"><span>© 2026 Jahitlink. Semua hak dilindungi.</span><span>Merawat detail, menjahit cerita.</span><a className="storefront-photo-credit" href="https://commons.wikimedia.org/wiki/File:Antique_Husqvarna_sewing_machine_(44201160084).jpg" target="_blank" rel="noreferrer">Foto: Thomas Quine · CC BY 2.0</a></div>
     </main>
   );
 }
