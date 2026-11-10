@@ -18,9 +18,18 @@ untuk setiap database. Login memakai sesi cookie `HttpOnly` yang berakhir
 setelah delapan jam. Jangan hapus folder `data` kecuali memang ingin mereset
 akun dan seluruh pesanan.
 
+Pelanggan dapat membuka `/pelanggan` untuk mendaftar atau masuk menggunakan
+nomor HP dan kata sandi. Setelah pelanggan membuat akun, admin perlu membuka
+detail pesanan di `/admin` dan menautkan akun pelanggan yang sesuai. Pesanan
+hanya terlihat di akun yang sudah ditautkan; nomor HP yang sama saja tidak
+memberi akses ke pesanan.
+
 ## Fitur
 
 - Admin/penjahit membuat pesanan, mencatat ukuran, pembayaran, dan pengambilan.
+- Admin dapat menyimpan alamat pelanggan pada pesanan; alamat hanya ditampilkan
+  di ruang kerja admin dan tidak dibagikan pada tautan pelacakan publik.
+- Pelanggan dapat membuat akun, masuk, dan melihat pesanan yang ditautkan admin.
 - Perubahan progres, biaya, dan pembayaran disimpan di SQLite dan tersedia
   kepada pelanggan lintas perangkat.
 - Admin dapat mencari dan memfilter pesanan berdasarkan status.
@@ -44,7 +53,9 @@ npm start
 ```
 
 Server menggunakan HTTPS melalui reverse proxy yang dikonfigurasi dengan benar
-untuk aplikasi publik. Dalam mode produksi cookie sesi memakai atribut `Secure`.
+untuk aplikasi publik. Proxy harus meneruskan header `X-Forwarded-Host` dari
+browser agar validasi asal permintaan tetap cocok. Dalam mode produksi cookie
+sesi memakai atribut `Secure`.
 Simpan database di volume persisten; untuk backup, hentikan server terlebih
 dahulu dan salin `data/jahitlink.sqlite`. `DATA_DIR` dapat diatur untuk memilih
 lokasi penyimpanan lain.

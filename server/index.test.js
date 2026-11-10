@@ -47,11 +47,12 @@ test("admin setup, protected orders, and private tracking run against SQLite", a
     }
     assert.equal(ready, true, `Test API did not start.\n${output}`);
 
-    const request = async (route, { method = "GET", body, cookie } = {}) => {
+    const request = async (route, { method = "GET", body, cookie, headers = {} } = {}) => {
       const response = await fetch(`${origin}${route}`, {
         method,
         headers: {
           Origin: origin,
+          ...headers,
           ...(body ? { "Content-Type": "application/json" } : {}),
           ...(cookie ? { Cookie: cookie } : {}),
         },
@@ -60,14 +61,29 @@ test("admin setup, protected orders, and private tracking run against SQLite", a
       return { response, payload: await response.json() };
     };
 
+    const proxiedStatus = await request("/api/auth/status", {
+      headers: { Origin: "http://localhost:5173", "X-Forwarded-Host": "localhost:5173" },
+    });
+    assert.equal(proxiedStatus.response.status, 200);
+    const rejectedCrossOrigin = await request("/api/auth/status", {
+      headers: { Origin: "https://attacker.example", "X-Forwarded-Host": "localhost:5173" },
+    });
+    assert.equal(rejectedCrossOrigin.response.status, 403);
+
     const { payload: initialStatus } = await request("/api/auth/status");
     assert.deepEqual(initialStatus, { setupRequired: true, authenticated: false, username: null });
     const unauthorized = await request("/api/orders");
     assert.equal(unauthorized.response.status, 401);
 
+    const invalidEmailSetup = await request("/api/auth/setup", {
+      method: "POST",
+      body: { username: "adminjahit@", password: "ValidPass123!" },
+    });
+    assert.equal(invalidEmailSetup.response.status, 400);
+
     const setup = await request("/api/auth/setup", {
       method: "POST",
-      body: { username: "testadmin", password: "ValidPass123!" },
+      body: { username: "adminjahit@gmail.com", password: "ValidPass123!" },
     });
     assert.equal(setup.response.status, 201);
     const cookie = setup.response.headers.get("set-cookie").split(";")[0];
@@ -85,6 +101,7 @@ test("admin setup, protected orders, and private tracking run against SQLite", a
       body: {
         customer: "Pelanggan Uji",
         phone: "08123456789",
+        address: "Jl. Merdeka No. 10, Bandung",
         service: "Jahit baru",
         garment: "Kemeja",
         model: "Lengan panjang",
@@ -98,12 +115,49 @@ test("admin setup, protected orders, and private tracking run against SQLite", a
     assert.equal(created.response.status, 200);
     assert.equal(created.payload.order.id, "JL-001");
     assert.equal(created.payload.order.payments[0].amount, 5000);
+    assert.equal(created.payload.order.address, "Jl. Merdeka No. 10, Bandung");
+    assert.equal(created.payload.order.customerAccountId, null);
     const token = created.payload.order.token;
+
+    const customerRegistration = await request("/api/customer/auth/register", {
+      method: "POST",
+      body: { name: "Pelanggan Uji", phone: "0812-3456-7890", password: "CustomerPass123!" },
+    });
+    assert.equal(customerRegistration.response.status, 201);
+    const customerCookie = customerRegistration.response.headers.get("set-cookie").split(";")[0];
+    assert.equal(customerRegistration.payload.customer.name, "Pelanggan Uji");
+    const unlinkedOrders = await request("/api/customer/orders", { cookie: customerCookie });
+    assert.deepEqual(unlinkedOrders.payload.orders, []);
+    assert.equal((await request("/api/orders", { cookie: customerCookie })).response.status, 401);
+    assert.equal((await request("/api/customer/orders", { cookie })).response.status, 401);
+
+    const customerAccounts = await request("/api/customer-accounts", { cookie });
+    assert.equal(customerAccounts.payload.customers.length, 1);
+    const assigned = await request("/api/orders/JL-001/customer-account", {
+      method: "POST",
+      cookie,
+      body: { customerAccountId: customerRegistration.payload.customer.id },
+    });
+    assert.equal(assigned.payload.order.customerAccountId, customerRegistration.payload.customer.id);
+    const linkedOrders = await request("/api/customer/orders", { cookie: customerCookie });
+    assert.equal(linkedOrders.payload.orders.length, 1);
+    assert.equal(linkedOrders.payload.orders[0].id, "JL-001");
+    assert.equal(linkedOrders.payload.orders[0].paid, 5000);
+    assert.equal("phone" in linkedOrders.payload.orders[0], false);
+
+    const secondCustomer = await request("/api/customer/auth/register", {
+      method: "POST",
+      body: { name: "Pelanggan Lain", phone: "081298765432", password: "AnotherPass123!" },
+    });
+    const secondCustomerCookie = secondCustomer.response.headers.get("set-cookie").split(";")[0];
+    const otherOrders = await request("/api/customer/orders", { cookie: secondCustomerCookie });
+    assert.deepEqual(otherOrders.payload.orders, []);
 
     const publicResult = await request(`/api/track/${token}`);
     assert.equal(publicResult.response.status, 200);
     assert.equal(publicResult.payload.order.paid, 5000);
     assert.equal("phone" in publicResult.payload.order, false);
+    assert.equal("address" in publicResult.payload.order, false);
     assert.equal("measurements" in publicResult.payload.order, false);
     assert.equal("note" in publicResult.payload.order, false);
     assert.equal("token" in publicResult.payload.order, false);
@@ -146,9 +200,19 @@ test("admin setup, protected orders, and private tracking run against SQLite", a
 
     const login = await request("/api/auth/login", {
       method: "POST",
-      body: { username: "testadmin", password: "ValidPass123!" },
+      body: { username: "adminjahit@gmail.com", password: "ValidPass123!" },
     });
     assert.equal(login.response.status, 200);
+
+    await request("/api/customer/auth/logout", { method: "POST", cookie: customerCookie });
+    const unauthorizedCustomerAfterLogout = await request("/api/customer/orders", { cookie: customerCookie });
+    assert.equal(unauthorizedCustomerAfterLogout.response.status, 401);
+    const customerLogin = await request("/api/customer/auth/login", {
+      method: "POST",
+      body: { phone: "081234567890", password: "CustomerPass123!" },
+    });
+    assert.equal(customerLogin.response.status, 200);
+    assert.equal(customerLogin.payload.customer.name, "Pelanggan Uji");
   } finally {
     server.kill();
     await once(server, "exit");

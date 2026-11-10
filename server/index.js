@@ -20,6 +20,19 @@ db.exec(`
     password_hash TEXT NOT NULL,
     created_at TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS customer_accounts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    phone TEXT NOT NULL UNIQUE,
+    password_salt TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS customer_sessions (
+    token_hash TEXT PRIMARY KEY,
+    customer_id INTEGER NOT NULL REFERENCES customer_accounts(id) ON DELETE CASCADE,
+    expires_at INTEGER NOT NULL
+  );
   CREATE TABLE IF NOT EXISTS sessions (
     token_hash TEXT PRIMARY KEY,
     expires_at INTEGER NOT NULL
@@ -30,6 +43,7 @@ db.exec(`
     created_at TEXT NOT NULL,
     customer TEXT NOT NULL,
     phone TEXT NOT NULL DEFAULT '',
+    address TEXT NOT NULL DEFAULT '',
     service TEXT NOT NULL,
     garment TEXT NOT NULL,
     model TEXT NOT NULL DEFAULT '',
@@ -40,7 +54,8 @@ db.exec(`
     fitting_date TEXT NOT NULL DEFAULT '',
     due_date TEXT NOT NULL DEFAULT '',
     total INTEGER NOT NULL DEFAULT 0,
-    picked_up_at TEXT
+    picked_up_at TEXT,
+    customer_account_id INTEGER REFERENCES customer_accounts(id) ON DELETE SET NULL
   );
   CREATE TABLE IF NOT EXISTS progress_updates (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -59,11 +74,20 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS progress_order_idx ON progress_updates(order_id, id);
   CREATE INDEX IF NOT EXISTS payments_order_idx ON payments(order_id, id);
 `);
+const orderColumns = new Set(db.prepare("PRAGMA table_info(orders)").all().map((column) => column.name));
+if (!orderColumns.has("address")) {
+  db.exec("ALTER TABLE orders ADD COLUMN address TEXT NOT NULL DEFAULT ''");
+}
+if (!orderColumns.has("customer_account_id")) {
+  db.exec("ALTER TABLE orders ADD COLUMN customer_account_id INTEGER REFERENCES customer_accounts(id) ON DELETE SET NULL");
+}
+db.exec("CREATE INDEX IF NOT EXISTS orders_customer_account_idx ON orders(customer_account_id, id)");
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
 const isProduction = process.env.NODE_ENV === "production";
 const sessionCookie = "jahitlink_session";
+const customerSessionCookie = "jahitlink_customer_session";
 const sessionDurationMs = 8 * 60 * 60 * 1000;
 const passwordSaltBytes = 16;
 const passwordHashBytes = 64;
@@ -130,6 +154,24 @@ function clearSession(res, token) {
   res.setHeader("Set-Cookie", options.join("; "));
 }
 
+function createCustomerSession(res, customerId) {
+  const token = randomBytes(32).toString("hex");
+  const expiresAt = Date.now() + sessionDurationMs;
+  db.prepare("DELETE FROM customer_sessions WHERE expires_at <= ?").run(Date.now());
+  db.prepare("INSERT INTO customer_sessions (token_hash, customer_id, expires_at) VALUES (?, ?, ?)")
+    .run(sessionHash(token), customerId, expiresAt);
+  const options = [`${customerSessionCookie}=${token}`, "Path=/", "HttpOnly", "SameSite=Strict", `Max-Age=${sessionDurationMs / 1000}`];
+  if (isProduction) options.push("Secure");
+  res.setHeader("Set-Cookie", options.join("; "));
+}
+
+function clearCustomerSession(res, token) {
+  if (token) db.prepare("DELETE FROM customer_sessions WHERE token_hash = ?").run(sessionHash(token));
+  const options = [`${customerSessionCookie}=`, "Path=/", "HttpOnly", "SameSite=Strict", "Max-Age=0"];
+  if (isProduction) options.push("Secure");
+  res.setHeader("Set-Cookie", options.join("; "));
+}
+
 function currentSession(req) {
   const token = parseCookies(req.headers.cookie)[sessionCookie];
   if (!token || !/^[a-f0-9]{64}$/.test(token)) return null;
@@ -142,6 +184,18 @@ function currentSession(req) {
   return { token, hash };
 }
 
+function currentCustomerSession(req) {
+  const token = parseCookies(req.headers.cookie)[customerSessionCookie];
+  if (!token || !/^[a-f0-9]{64}$/.test(token)) return null;
+  const hash = sessionHash(token);
+  const session = db.prepare("SELECT customer_id, expires_at FROM customer_sessions WHERE token_hash = ?").get(hash);
+  if (!session || session.expires_at <= Date.now()) {
+    if (session) db.prepare("DELETE FROM customer_sessions WHERE token_hash = ?").run(hash);
+    return null;
+  }
+  return { customerId: session.customer_id };
+}
+
 function requireSameOrigin(req, res, next) {
   const origin = req.get("origin");
   if (origin) {
@@ -151,7 +205,9 @@ function requireSameOrigin(req, res, next) {
     } catch {
       return apiError(res, 403, "Asal permintaan tidak valid.");
     }
-    if (originHost !== req.get("host")) return apiError(res, 403, "Permintaan lintas situs ditolak.");
+    const forwardedHost = req.get("x-forwarded-host")?.split(",").at(-1)?.trim();
+    const requestHost = forwardedHost || req.get("host");
+    if (originHost !== requestHost) return apiError(res, 403, "Permintaan lintas situs ditolak.");
   }
   if (req.get("sec-fetch-site") === "cross-site") return apiError(res, 403, "Permintaan lintas situs ditolak.");
   next();
@@ -161,6 +217,13 @@ function requireAdmin(req, res, next) {
   const session = currentSession(req);
   if (!session) return apiError(res, 401, "Sesi admin berakhir. Silakan masuk kembali.");
   req.adminSession = session;
+  next();
+}
+
+function requireCustomer(req, res, next) {
+  const session = currentCustomerSession(req);
+  if (!session) return apiError(res, 401, "Sesi pelanggan berakhir. Silakan masuk kembali.");
+  req.customerSession = session;
   next();
 }
 
@@ -192,7 +255,9 @@ function serializeOrder(row, isPublic = false) {
   if (isPublic) return base;
   return {
     ...base,
+    customerAccountId: row.customer_account_id ?? null,
     phone: row.phone,
+    address: row.address ?? "",
     material: row.material,
     materialAmount: row.material_amount,
     note: row.note,
@@ -238,8 +303,10 @@ function allowLoginAttempt(req, res, next) {
 app.post("/api/auth/setup", allowLoginAttempt, (req, res) => {
   const username = normalizeText(req.body?.username, 64);
   const password = req.body?.password;
-  if (username.length < 3 || !/^[\p{L}\p{N}_.-]+$/u.test(username)) {
-    return apiError(res, 400, "Nama pengguna harus 3–64 karakter dan hanya berisi huruf, angka, titik, garis bawah, atau tanda hubung.");
+  const validUsername = /^[\p{L}\p{N}_.-]{3,64}$/u.test(username);
+  const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(username);
+  if (username.length < 3 || (!validUsername && !validEmail)) {
+    return apiError(res, 400, "Masukkan nama pengguna 3–64 karakter (huruf, angka, titik, garis bawah, tanda hubung) atau alamat email yang valid.");
   }
   if (typeof password !== "string" || password.length < passwordMinimumLength || password.length > 200) {
     return apiError(res, 400, "Kata sandi harus terdiri dari 10–200 karakter.");
@@ -284,6 +351,94 @@ app.post("/api/auth/logout", (req, res) => {
   res.json({ authenticated: false });
 });
 
+app.get("/api/customer/auth/status", (req, res) => {
+  const session = currentCustomerSession(req);
+  if (!session) return res.json({ authenticated: false, customer: null });
+  const customer = db.prepare("SELECT id, name FROM customer_accounts WHERE id = ?").get(session.customerId);
+  if (!customer) return res.json({ authenticated: false, customer: null });
+  return res.json({ authenticated: true, customer });
+});
+
+app.post("/api/customer/auth/register", allowLoginAttempt, (req, res) => {
+  const name = normalizeText(req.body?.name, 120);
+  const phone = normalizeText(req.body?.phone, 40);
+  const normalizedPhone = phone.replace(/\D/g, "");
+  const password = req.body?.password;
+  if (name.length < 2) return apiError(res, 400, "Nama harus terdiri dari minimal 2 karakter.");
+  if (normalizedPhone.length < 8 || normalizedPhone.length > 15) {
+    return apiError(res, 400, "Masukkan nomor HP yang valid (8–15 digit).");
+  }
+  if (typeof password !== "string" || password.length < passwordMinimumLength || password.length > 200) {
+    return apiError(res, 400, "Kata sandi harus terdiri dari 10–200 karakter.");
+  }
+  const salt = randomBytes(passwordSaltBytes);
+  const hash = passwordHash(password, salt);
+  let result;
+  try {
+    result = db.prepare(`
+      INSERT INTO customer_accounts (name, phone, password_salt, password_hash, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(name, normalizedPhone, salt.toString("hex"), hash, today());
+  } catch (error) {
+    if (error.code === "SQLITE_CONSTRAINT_UNIQUE") return apiError(res, 409, "Nomor HP ini sudah terdaftar. Silakan masuk.");
+    throw error;
+  }
+  const customer = { id: Number(result.lastInsertRowid), name };
+  createCustomerSession(res, customer.id);
+  return res.status(201).json({ authenticated: true, customer });
+});
+
+app.post("/api/customer/auth/login", allowLoginAttempt, (req, res) => {
+  const phone = normalizeText(req.body?.phone, 40).replace(/\D/g, "");
+  const password = req.body?.password;
+  const customer = db.prepare("SELECT id, name, password_salt, password_hash FROM customer_accounts WHERE phone = ?")
+    .get(phone);
+  if (!customer || typeof password !== "string" || password.length > 200) {
+    return apiError(res, 401, "Nomor HP atau kata sandi salah.");
+  }
+  const actual = Buffer.from(passwordHash(password, Buffer.from(customer.password_salt, "hex")));
+  const expected = Buffer.from(customer.password_hash);
+  if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
+    return apiError(res, 401, "Nomor HP atau kata sandi salah.");
+  }
+  const account = { id: customer.id, name: customer.name };
+  createCustomerSession(res, account.id);
+  return res.json({ authenticated: true, customer: account });
+});
+
+app.post("/api/customer/auth/logout", (req, res) => {
+  const token = parseCookies(req.headers.cookie)[customerSessionCookie];
+  clearCustomerSession(res, token);
+  return res.json({ authenticated: false });
+});
+
+app.get("/api/customer/orders", requireCustomer, (req, res) => {
+  const rows = db.prepare(`
+    SELECT * FROM orders WHERE customer_account_id = ? ORDER BY id DESC
+  `).all(req.customerSession.customerId);
+  const orders = rows.map((row) => {
+    const order = serializeOrder(row, true);
+    const paid = order.payments.reduce((sum, payment) => sum + payment.amount, 0);
+    return {
+      id: order.id,
+      token: order.token,
+      createdAt: order.createdAt,
+      garment: order.garment,
+      service: order.service,
+      dueDate: order.dueDate,
+      total: order.total,
+      paid,
+      status: order.progress.at(-1)?.status ?? "Menunggu pengerjaan",
+    };
+  });
+  return res.json({ orders });
+});
+
+app.get("/api/customer-accounts", requireAdmin, (req, res) => {
+  const customers = db.prepare("SELECT id, name, phone FROM customer_accounts ORDER BY name COLLATE NOCASE").all();
+  return res.json({ customers });
+});
+
 app.get("/api/orders", requireAdmin, (req, res) => {
   const rows = db.prepare("SELECT * FROM orders ORDER BY id DESC").all();
   res.json({ orders: rows.map((row) => serializeOrder(row)) });
@@ -310,13 +465,14 @@ app.post("/api/orders", requireAdmin, (req, res) => {
 
   const create = db.transaction(() => {
     const result = db.prepare(`
-      INSERT INTO orders (tracking_token, created_at, customer, phone, service, garment, model, material, material_amount, note, measurements_json, fitting_date, due_date, total)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO orders (tracking_token, created_at, customer, phone, address, service, garment, model, material, material_amount, note, measurements_json, fitting_date, due_date, total)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       randomBytes(32).toString("hex"),
       today(),
       customer,
       normalizeText(body.phone, 40),
+      normalizeText(body.address, 500),
       service,
       garment,
       normalizeText(body.model, 500),
@@ -339,6 +495,24 @@ app.post("/api/orders", requireAdmin, (req, res) => {
   });
   const id = orderId(create());
   return sendOrder(req, res, id);
+});
+
+app.post("/api/orders/:id/customer-account", requireAdmin, (req, res) => {
+  const match = /^JL-(\d{3,})$/i.exec(req.params.id);
+  if (!match) return apiError(res, 404, "Pesanan tidak ditemukan.");
+  const rowId = Number(match[1]);
+  const exists = db.prepare("SELECT id FROM orders WHERE id = ?").get(rowId);
+  if (!exists) return apiError(res, 404, "Pesanan tidak ditemukan.");
+  const customerAccountId = req.body?.customerAccountId;
+  if (customerAccountId !== null && (!Number.isSafeInteger(customerAccountId) || customerAccountId <= 0)) {
+    return apiError(res, 400, "Akun pelanggan tidak valid.");
+  }
+  if (customerAccountId !== null) {
+    const customer = db.prepare("SELECT id FROM customer_accounts WHERE id = ?").get(customerAccountId);
+    if (!customer) return apiError(res, 404, "Akun pelanggan tidak ditemukan.");
+  }
+  db.prepare("UPDATE orders SET customer_account_id = ? WHERE id = ?").run(customerAccountId, rowId);
+  return sendOrder(req, res, req.params.id);
 });
 
 app.post("/api/orders/:id/progress", requireAdmin, (req, res) => {

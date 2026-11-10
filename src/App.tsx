@@ -27,6 +27,7 @@ type Order = {
   createdAt: string;
   customer: string;
   phone: string;
+  address: string;
   service: string;
   garment: string;
   model: string;
@@ -40,6 +41,21 @@ type Order = {
   payments: Payment[];
   progress: ProgressUpdate[];
   pickedUpAt: string | null;
+  customerAccountId: number | null;
+};
+
+type CustomerAccount = { id: number; name: string; phone: string };
+type CustomerIdentity = { id: number; name: string };
+type CustomerOrder = {
+  id: string;
+  token: string;
+  createdAt: string;
+  garment: string;
+  service: string;
+  dueDate: string;
+  total: number;
+  paid: number;
+  status: ProgressStatus;
 };
 
 type TrackingOrder = Pick<
@@ -114,6 +130,7 @@ function initialForm() {
   return {
     customer: "",
     phone: "",
+    address: "",
     service: "Jahit baru",
     garment: "",
     model: "",
@@ -138,6 +155,7 @@ function initialForm() {
 
 function App() {
   const [orders, setOrders] = useState<Order[]>([]);
+  const [customerAccounts, setCustomerAccounts] = useState<CustomerAccount[]>([]);
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
   const [startupError, setStartupError] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -194,10 +212,17 @@ function App() {
         if (!active) return;
         setAuthStatus(status);
         if (status.authenticated) {
-          const result = await apiRequest<{ orders: Order[] }>("/api/orders");
-          if (active) setOrders(result.orders);
+          const [result, accounts] = await Promise.all([
+            apiRequest<{ orders: Order[] }>("/api/orders"),
+            apiRequest<{ customers: CustomerAccount[] }>("/api/customer-accounts"),
+          ]);
+          if (active) {
+            setOrders(result.orders);
+            setCustomerAccounts(accounts.customers);
+          }
         } else {
           setOrders([]);
+          setCustomerAccounts([]);
         }
         setStartupError("");
       } catch (error) {
@@ -212,8 +237,14 @@ function App() {
   useEffect(() => {
     if (!isAdminRoute || !authStatus?.authenticated) return;
     const interval = window.setInterval(() => {
-      void apiRequest<{ orders: Order[] }>("/api/orders")
-        .then((result) => setOrders(result.orders))
+      void Promise.all([
+        apiRequest<{ orders: Order[] }>("/api/orders"),
+        apiRequest<{ customers: CustomerAccount[] }>("/api/customer-accounts"),
+      ])
+        .then(([result, accounts]) => {
+          setOrders(result.orders);
+          setCustomerAccounts(accounts.customers);
+        })
         .catch((error: unknown) => {
           console.error("Gagal memperbarui pesanan.", error);
           if (error instanceof Error && error.message.includes("Sesi admin")) {
@@ -362,15 +393,30 @@ function App() {
 
   async function handleAdminAuthenticated() {
     try {
-      const [status, result] = await Promise.all([
+      const [status, result, accounts] = await Promise.all([
         apiRequest<AuthStatus>("/api/auth/status"),
         apiRequest<{ orders: Order[] }>("/api/orders"),
+        apiRequest<{ customers: CustomerAccount[] }>("/api/customer-accounts"),
       ]);
       setAuthStatus({ ...status, authenticated: true });
       setOrders(result.orders);
+      setCustomerAccounts(accounts.customers);
       setStartupError("");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Gagal memuat data admin.");
+    }
+  }
+
+  async function assignCustomerAccount(order: Order, customerAccountId: number | null) {
+    try {
+      const result = await apiRequest<{ order: Order }>(`/api/orders/${order.id}/customer-account`, {
+        method: "POST",
+        body: JSON.stringify({ customerAccountId }),
+      });
+      setOrders((current) => current.map((item) => item.id === order.id ? result.order : item));
+      setNotice(customerAccountId === null ? "Akun pelanggan diputus dari pesanan." : "Pesanan berhasil ditautkan ke akun pelanggan.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Akun pelanggan gagal diperbarui.");
     }
   }
 
@@ -393,6 +439,9 @@ function App() {
       return <main className="not-found"><h1>Pelacakan belum tersedia</h1><p>{trackingLoadError}</p><a className="button button-primary" href="/">Kembali</a></main>;
     }
     return <NotFoundPage />;
+  }
+  if (window.location.pathname === "/pelanggan" || window.location.pathname.startsWith("/pelanggan/")) {
+    return <CustomerPortal />;
   }
   if (!isAdminRoute) {
     return <CustomerLanding trackError={trackError} onTrack={openCustomerTracking} />;
@@ -450,6 +499,8 @@ function App() {
               onPayment={addPayment}
               onQuote={setOrderQuote}
               onPickup={markPickedUp}
+              customerAccounts={customerAccounts}
+              onAssignCustomerAccount={(customerAccountId) => void assignCustomerAccount(selectedOrder, customerAccountId)}
               newStatus={newStatus}
               setNewStatus={setNewStatus}
               progressNote={progressNote}
@@ -623,7 +674,7 @@ function AdminAccess({ setupRequired, onAuthenticated }: { setupRequired: boolea
             : "Masuk untuk membuat dan mengelola pesanan jahit."}
         </p>
         <form className="admin-access-form" onSubmit={(event) => void submit(event)}>
-          <label>Nama pengguna<input name="username" required minLength={3} autoComplete="username" /></label>
+          <label>Nama pengguna atau email<input name="username" type="text" required minLength={3} autoComplete="username" placeholder="Contoh: adminjahit atau email@contoh.com" /></label>
           <label>Kata sandi<input name="password" type="password" required minLength={isSetup ? 10 : 1} autoComplete={isSetup ? "new-password" : "current-password"} /></label>
           {isSetup && <label>Ulangi kata sandi<input name="confirmPassword" type="password" required minLength={10} autoComplete="new-password" /></label>}
           {error && <p className="admin-access-error" role="alert">{error}</p>}
@@ -631,6 +682,232 @@ function AdminAccess({ setupRequired, onAuthenticated }: { setupRequired: boolea
         </form>
         <p className="admin-access-note">Kredensial diperiksa oleh server. Sesi berakhir otomatis setelah 8 jam.</p>
         <a className="admin-access-home" href="/">← Kembali ke halaman pelanggan</a>
+      </section>
+    </main>
+  );
+}
+
+function CustomerPortal() {
+  const [customer, setCustomer] = useState<CustomerIdentity | null>(null);
+  const [orders, setOrders] = useState<CustomerOrder[]>([]);
+  const [isRegister, setIsRegister] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [refreshingOrders, setRefreshingOrders] = useState(false);
+  const [error, setError] = useState("");
+
+  async function loadOrders() {
+    const result = await apiRequest<{ orders: CustomerOrder[] }>("/api/customer/orders");
+    setOrders(result.orders);
+  }
+
+  useEffect(() => {
+    let active = true;
+    async function loadCustomer() {
+      try {
+        const status = await apiRequest<{ authenticated: boolean; customer: CustomerIdentity | null }>("/api/customer/auth/status");
+        if (!active) return;
+        if (status.authenticated && status.customer) {
+          setCustomer(status.customer);
+          const result = await apiRequest<{ orders: CustomerOrder[] }>("/api/customer/orders");
+          if (active) setOrders(result.orders);
+        }
+      } catch (caught) {
+        console.error("Gagal memuat akun pelanggan.", caught);
+        if (active) setError(caught instanceof Error ? caught.message : "Akun pelanggan gagal dimuat.");
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+    void loadCustomer();
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!customer) return;
+    let active = true;
+    const refreshOrders = async () => {
+      try {
+        const result = await apiRequest<{ orders: CustomerOrder[] }>("/api/customer/orders");
+        if (active) setOrders(result.orders);
+      } catch (caught) {
+        console.error("Gagal memperbarui pesanan pelanggan.", caught);
+        if (active) setError(caught instanceof Error ? caught.message : "Pesanan pelanggan gagal diperbarui.");
+      }
+    };
+    const interval = window.setInterval(() => void refreshOrders(), 15_000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [customer?.id]);
+
+  async function refreshCustomerOrders() {
+    setRefreshingOrders(true);
+    setError("");
+    try {
+      await loadOrders();
+    } catch (caught) {
+      console.error("Gagal memuat ulang pesanan pelanggan.", caught);
+      setError(caught instanceof Error ? caught.message : "Pesanan pelanggan gagal diperbarui.");
+    } finally {
+      setRefreshingOrders(false);
+    }
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setSubmitting(true);
+    const form = new FormData(event.currentTarget);
+    const phone = String(form.get("phone") ?? "").trim();
+    const password = String(form.get("password") ?? "");
+    try {
+      if (isRegister) {
+        const name = String(form.get("name") ?? "").trim();
+        if (name.length < 2) throw new Error("Nama harus terdiri dari minimal 2 karakter.");
+        if (password.length < 10) throw new Error("Kata sandi harus terdiri dari minimal 10 karakter.");
+        if (password !== String(form.get("confirmPassword") ?? "")) throw new Error("Konfirmasi kata sandi tidak cocok.");
+        const result = await apiRequest<{ customer: CustomerIdentity }>("/api/customer/auth/register", {
+          method: "POST",
+          body: JSON.stringify({ name, phone, password }),
+        });
+        setCustomer(result.customer);
+        await loadOrders();
+      } else {
+        const result = await apiRequest<{ customer: CustomerIdentity }>("/api/customer/auth/login", {
+          method: "POST",
+          body: JSON.stringify({ phone, password }),
+        });
+        setCustomer(result.customer);
+        await loadOrders();
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Permintaan akun pelanggan gagal.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function logout() {
+    try {
+      await apiRequest("/api/customer/auth/logout", { method: "POST" });
+      setCustomer(null);
+      setOrders([]);
+      setError("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Gagal keluar dari akun.");
+    }
+  }
+
+  if (loading) {
+    return <main className="admin-access-page"><section className="admin-access-card">Memuat akun pelanggan...</section></main>;
+  }
+
+  if (customer) {
+    const activeOrders = orders.filter((order) => order.status !== "Selesai").length;
+    return (
+      <main className="customer-account-page">
+        <header className="customer-account-header">
+          <a className="brand" href="/"><span className="brand-mark">J</span><span>jahit<span className="brand-accent">link</span></span></a>
+          <div className="customer-account-user">
+            <span className="customer-account-avatar">{customer.name.slice(0, 1).toUpperCase()}</span>
+            <span className="customer-account-greeting">Halo, <strong>{customer.name}</strong></span>
+            <button className="logout-button" type="button" onClick={() => void logout()}>Keluar</button>
+          </div>
+        </header>
+        <section className="customer-account-content">
+          <section className="customer-account-hero">
+            <div className="customer-account-hero-copy">
+              <p className="eyebrow">RUANG PERSONAL ANDA</p>
+              <h1>Jahitan istimewa,<br /><em>selalu terpantau.</em></h1>
+              <p>Pantau setiap kabar terbaru dari penjahit, dari proses pengerjaan hingga siap dikenakan.</p>
+            </div>
+            <div className="customer-account-hero-art" aria-hidden="true">
+              <span className="customer-hero-orbit" />
+              <span className="customer-hero-needle">✦</span>
+              <span className="customer-hero-thread">J</span>
+              <span className="customer-hero-caption">MADE FOR YOU</span>
+            </div>
+          </section>
+
+          <div className="customer-orders-toolbar">
+            <div>
+              <p className="eyebrow">DASHBOARD PELANGGAN</p>
+              <h2>Pesanan saya <span>{orders.length}</span></h2>
+              <p>{orders.length ? `${activeOrders} pesanan masih dalam proses` : "Semua pesanan jahit Anda akan tampil di sini."}</p>
+            </div>
+            <button className="button button-secondary customer-orders-refresh" type="button" onClick={() => void refreshCustomerOrders()} disabled={refreshingOrders}>
+              <span aria-hidden="true">↻</span> {refreshingOrders ? "Memuat..." : "Muat ulang"}
+            </button>
+          </div>
+          {error && <p className="admin-access-error" role="alert">{error}</p>}
+          {orders.length === 0 ? (
+            <div className="customer-orders-empty">
+              <span className="customer-empty-art" aria-hidden="true"><span>J</span><i>✦</i></span>
+              <p className="eyebrow">SIAP UNTUK MULAI?</p>
+              <h2>Perjalanan jahitan Anda dimulai di sini.</h2>
+              <p>Pesanan akan muncul otomatis setelah admin menghubungkannya ke akun ini. Silakan hubungi studio jika Anda sudah memiliki pesanan.</p>
+              <a className="button button-primary" href="/">Kembali ke halaman utama <span aria-hidden="true">→</span></a>
+            </div>
+          ) : (
+            <div className="customer-orders-list">
+              {orders.map((order) => (
+                <article className="customer-order-card" key={order.id}>
+                  <div className="customer-order-heading">
+                    <div className="customer-order-identity">
+                      <span className="customer-order-icon" aria-hidden="true">✦</span>
+                      <div><p className="eyebrow">{order.id} <span>·</span> {formatDate(order.createdAt)}</p><h3>{order.garment}</h3><p>{order.service}</p></div>
+                    </div>
+                    <StatusBadge status={order.status} />
+                  </div>
+                  <div className="customer-order-progress" aria-label={`Status pesanan: ${order.status}`}>
+                    <span className="customer-progress-line"><i className={order.status === "Menunggu pengerjaan" || order.status === "Menunggu konfirmasi" ? "current" : "complete"} /><i className={order.status === "Dalam pengerjaan" ? "current" : ["Siap fitting", "Perlu revisi", "Siap diambil", "Selesai"].includes(order.status) ? "complete" : ""} /><i className={order.status === "Siap fitting" || order.status === "Perlu revisi" ? "current" : ["Siap diambil", "Selesai"].includes(order.status) ? "complete" : ""} /><i className={order.status === "Siap diambil" ? "current" : order.status === "Selesai" ? "complete" : ""} /><i className={order.status === "Selesai" ? "current" : ""} /></span>
+                    <div className="customer-progress-labels"><span>Diterima</span><span>Dijahit</span><span>Fitting</span><span>Siap diambil</span><span>Selesai</span></div>
+                  </div>
+                  <div className="customer-order-summary">
+                    <span>Target selesai <strong>{formatDate(order.dueDate)}</strong></span>
+                    <span>Total biaya <strong>{order.total > 0 ? formatCurrency(order.total) : "Menunggu estimasi"}</strong></span>
+                    {order.total > 0 && <span>Sisa pembayaran <strong className={order.total - order.paid <= 0 ? "customer-paid" : ""}>{formatCurrency(Math.max(0, order.total - order.paid))}</strong></span>}
+                  </div>
+                  <a className="button button-primary customer-order-action" href={`/track/${encodeURIComponent(order.token)}`}>Lihat progres pesanan <span aria-hidden="true">→</span></a>
+                </article>
+              ))}
+            </div>
+          )}
+          <p className="customer-account-footnote"><span aria-hidden="true">✦</span> Dijahit dengan perhatian, diperbarui khusus untuk Anda.</p>
+        </section>
+      </main>
+    );
+  }
+
+  return (
+    <main className="admin-access-page">
+      <section className="admin-access-card">
+        <a className="brand" href="/" aria-label="Kembali ke JahitLink">
+          <span className="brand-mark">J</span>
+          <span>jahit<span className="brand-accent">link</span></span>
+        </a>
+        <p className="eyebrow">{isRegister ? "AKUN PELANGGAN" : "PORTAL PELANGGAN"}</p>
+        <h1>{isRegister ? "Buat akun pelanggan" : "Masuk ke akun pelanggan"}</h1>
+        <p className="admin-access-description">
+          {isRegister ? "Daftar dengan nomor HP dan kata sandi untuk melihat pesanan yang ditautkan admin." : "Masuk untuk melihat pesanan yang telah ditautkan ke akun Anda."}
+        </p>
+        <form className="admin-access-form" onSubmit={(event) => void submit(event)}>
+          {isRegister && <label>Nama lengkap<input name="name" required minLength={2} autoComplete="name" /></label>}
+          <label>Nomor HP<input name="phone" type="tel" required autoComplete="tel" placeholder="Contoh: 081234567890" /></label>
+          <label>Kata sandi<input name="password" type="password" required minLength={isRegister ? 10 : 1} autoComplete={isRegister ? "new-password" : "current-password"} /></label>
+          {isRegister && <label>Ulangi kata sandi<input name="confirmPassword" type="password" required minLength={10} autoComplete="new-password" /></label>}
+          {error && <p className="admin-access-error" role="alert">{error}</p>}
+          <button className="button button-primary button-full" type="submit" disabled={submitting}>
+            {submitting ? "Memproses..." : isRegister ? "Daftar dan masuk" : "Masuk"}
+          </button>
+        </form>
+        <button className="customer-auth-switch" type="button" onClick={() => { setIsRegister((current) => !current); setError(""); }}>
+          {isRegister ? "Sudah punya akun? Masuk" : "Belum punya akun? Daftar"}
+        </button>
+        <p className="admin-access-note">Akun baru hanya dapat melihat pesanan setelah admin menautkannya.</p>
+        <a className="admin-access-home" href="/">← Kembali ke halaman utama</a>
       </section>
     </main>
   );
@@ -666,6 +943,8 @@ function OrderDetail(props: {
   onPayment: (order: Order) => void;
   onQuote: (order: Order) => void;
   onPickup: (order: Order) => void;
+  customerAccounts: CustomerAccount[];
+  onAssignCustomerAccount: (customerAccountId: number | null) => void;
   newStatus: ProgressStatus;
   setNewStatus: (status: ProgressStatus) => void;
   progressNote: string;
@@ -678,6 +957,10 @@ function OrderDetail(props: {
   setQuoteAmount: (value: string) => void;
 }) {
   const { order } = props;
+  const [customerAccountId, setCustomerAccountId] = useState(order.customerAccountId?.toString() ?? "");
+  useEffect(() => {
+    setCustomerAccountId(order.customerAccountId?.toString() ?? "");
+  }, [order.id, order.customerAccountId]);
   const paid = getPaid(order);
   const balance = Math.max(0, order.total - paid);
   return (
@@ -790,6 +1073,24 @@ function OrderDetail(props: {
             <div className="panel-title"><div className="section-icon blue">♙</div><div><h2>Pelanggan</h2><p>Informasi kontak internal</p></div></div>
             <InfoField label="Nama" value={order.customer} />
             <InfoField label="WhatsApp" value={order.phone || "—"} />
+            <InfoField label="Alamat" value={order.address || "—"} />
+            <div className="customer-account-link">
+              <label htmlFor="customer-account">Akun pelanggan</label>
+              <select id="customer-account" value={customerAccountId} onChange={(event) => setCustomerAccountId(event.target.value)} aria-label="Akun pelanggan untuk pesanan ini">
+                <option value="">Belum ditautkan</option>
+                {props.customerAccounts.map((account) => (
+                  <option key={account.id} value={account.id}>{account.name} · {account.phone}</option>
+                ))}
+              </select>
+              <button
+                className="button button-secondary button-full"
+                type="button"
+                disabled={customerAccountId === (order.customerAccountId?.toString() ?? "")}
+                onClick={() => props.onAssignCustomerAccount(customerAccountId ? Number(customerAccountId) : null)}
+              >
+                Simpan tautan akun
+              </button>
+            </div>
           </section>
 
           <section className="pickup-card">
@@ -816,46 +1117,52 @@ function CustomerLanding(props: {
     <main className="storefront">
       <header className="storefront-header">
         <a className="brand" href="/" aria-label="JahitLink beranda"><span className="brand-mark">J</span><span>jahit<span className="brand-accent">link</span></span></a>
-        <nav className="storefront-nav"><a href="#layanan">Layanan</a><a href="#cara-pesan">Cara pesan</a><a href="#lacak">Lacak pesanan</a></nav>
-        <a className="button button-secondary owner-link" href="/admin">Masuk pemilik ↗</a>
+        <nav className="storefront-nav" aria-label="Navigasi utama">
+          <a className="storefront-nav-home" href="/" aria-label="Beranda">⌂</a>
+          <a href="#layanan">Layanan</a>
+          <a href="#cara-pesan">Cara pesan</a>
+          <a href="#lacak">Lacak pesanan</a>
+        </nav>
+        <div className="storefront-access-links">
+          <a className="button button-secondary customer-login-link" href="/pelanggan">Masuk</a>
+          <a className="button button-primary storefront-start-link" href="#cara-pesan">Mulai pesanan <span aria-hidden="true">→</span></a>
+        </div>
       </header>
 
       <section className="storefront-hero">
         <div className="hero-copy">
-          <span className="hero-kicker"><span /> JAHITAN PERSONAL, HASIL ISTIMEWA</span>
+          <span className="hero-kicker"><span className="hero-kicker-star">✦</span><span className="hero-kicker-dot" /> JAHITAN PERSONAL, HASIL ISTIMEWA</span>
           <h1>Jahitan yang pas,<br /><em>untuk ceritamu.</em></h1>
           <p>Wujudkan pakaian sesuai ukuran dan gayamu. Pesanan dicatat langsung oleh admin atau penjahit studio.</p>
-          <div className="hero-actions"><a href="#lacak" className="button button-primary">Lacak pesanan <span>→</span></a><a href="#cara-pesan" className="text-link">Pelajari proses <span>↓</span></a></div>
-          <div className="hero-note"><span className="hero-note-check">✓</span> Ukuran personal <span className="hero-note-divider">·</span> Progres transparan <span className="hero-note-divider">·</span> Konsultasi langsung</div>
+          <div className="hero-actions"><a href="#lacak" className="button button-primary"><span aria-hidden="true">◷</span> Lacak pesanan <span>→</span></a><a href="#cara-pesan" className="button button-secondary hero-process-link"><span aria-hidden="true">♧</span> Pelajari proses <span>↗</span></a></div>
+          <div className="hero-note"><span><i>✓</i> Ukuran presisi</span><span><i>✦</i> Proses transparan</span><span><i>♥</i> Kualitas terjamin</span></div>
         </div>
-        <div className="hero-art" aria-label="Ilustrasi busana dan pola jahit">
-          <div className="art-orbit orbit-one" /><div className="art-orbit orbit-two" />
-          <div className="fabric-card"><div className="fabric-lines" /><span>MADE<br />FOR YOU</span></div>
-          <div className="sewing-tag"><span>✦</span> dibuat dengan teliti</div>
-          <div className="art-stitch stitch-one" /><div className="art-stitch stitch-two" />
+        <div className="hero-art">
+          <img src="/hero-sewing-photo.jpg" alt="Mesin jahit antik Husqvarna berwarna hijau di atas meja kayu" />
+          <a className="hero-photo-credit" href="https://commons.wikimedia.org/wiki/File:Antique_Husqvarna_sewing_machine_(44201160084).jpg" target="_blank" rel="noreferrer">Foto: Thomas Quine · CC BY 2.0</a>
         </div>
       </section>
 
       <section id="layanan" className="storefront-services">
-        <div className="section-heading"><div><p className="eyebrow">LAYANAN JAHIT</p><h2>Dari ide, jadi pakaian favorit.</h2></div><p>Jahitan dibuat sesuai kebutuhanmu, dengan detail yang dibicarakan bersama penjahit.</p></div>
+        <div className="section-heading"><div><p className="eyebrow"><span aria-hidden="true">✦</span> LAYANAN JAHIT</p><h2>Dari ide, jadi pakaian favorit.<span className="heading-spark" aria-hidden="true">♡</span></h2></div><p>Jahitan dibuat sesuai kebutuhanmu, dengan detail yang dibicarakan bersama penjahit.</p></div>
         <div className="service-cards">
-          <article className="service-card"><span className="service-icon lavender">✦</span><h3>Jahit pakaian baru</h3><p>Buat pakaian dengan model, bahan, dan ukuran pilihanmu.</p><span className="service-number">01</span></article>
-          <article className="service-card"><span className="service-icon peach">⌁</span><h3>Permak pakaian</h3><p>Sesuaikan panjang, ukuran, atau potongan agar lebih nyaman dipakai.</p><span className="service-number">02</span></article>
-          <article className="service-card"><span className="service-icon mint">✂</span><h3>Perbaikan jahitan</h3><p>Perbaiki pakaian kesayangan agar bisa dipakai kembali.</p><span className="service-number">03</span></article>
+          <article className="service-card service-card-lavender"><span className="service-icon lavender" aria-hidden="true">👗</span><div><h3>Jahit pakaian baru</h3><p>Buat pakaian dengan model, bahan, dan ukuran pilihanmu.</p></div><span className="service-arrow" aria-hidden="true">→</span></article>
+          <article className="service-card service-card-peach"><span className="service-icon peach" aria-hidden="true">👔</span><div><h3>Permak pakaian</h3><p>Sesuaikan jahitan, ukuran, atau potongan agar nyaman dipakai.</p></div><span className="service-arrow" aria-hidden="true">→</span></article>
+          <article className="service-card service-card-green"><span className="service-icon mint" aria-hidden="true">✂️</span><div><h3>Perbaikan jahitan</h3><p>Perbaiki pakaian kesayangan agar bisa dipakai kembali.</p></div><span className="service-arrow" aria-hidden="true">→</span></article>
         </div>
       </section>
 
       <section id="cara-pesan" className="how-section">
-        <div><p className="eyebrow">MUDAH DAN JELAS</p><h2>Pesan, pantau,<br />lalu kenakan.</h2><p className="how-copy">Admin atau penjahit mencatat pesanan di studio. Pelanggan dapat memantau progres melalui kode pelacakan.</p></div>
+        <div className="how-intro"><p className="eyebrow"><span aria-hidden="true">✓</span> MUDAH DAN JELAS</p><h2>Pesan, pantau,<br />lalu <em>kenakan.</em></h2><p className="how-copy">Admin atau penjahit akan mencatat pesanan di studio. Pantau progres jahitan melalui kode pelacakan.</p><img className="how-illustration" src="/process-sewing.svg" alt="Ilustrasi manekin, kain terlipat, dan benang jahit" /></div>
         <div className="how-steps">
-          <div className="how-step"><span>01</span><div><strong>Konsultasi di studio</strong><p>Diskusikan jenis pakaian, model, dan kebutuhan dengan penjahit.</p></div></div>
-          <div className="how-step"><span>02</span><div><strong>Pesanan dicatat admin</strong><p>Admin atau penjahit memasukkan detail, ukuran, biaya, dan jadwal.</p></div></div>
-          <div className="how-step"><span>03</span><div><strong>Pantau sampai selesai</strong><p>Lihat progres dan sisa pembayaran melalui tautan khusus.</p></div></div>
+          <div className="how-step"><span>01</span><i className="how-step-icon" aria-hidden="true">☏</i><div><strong>Konsultasi di studio</strong><p>Diskusikan jenis pakaian, model, dan kebutuhan dengan penjahit.</p></div></div>
+          <div className="how-step"><span>02</span><i className="how-step-icon" aria-hidden="true">✓</i><div><strong>Pesanan dicatat admin</strong><p>Admin mencatat detail ukuran, bahan, dan jadwal jahitanmu.</p></div></div>
+          <div className="how-step"><span>03</span><i className="how-step-icon" aria-hidden="true">⌁</i><div><strong>Pantau sampai selesai</strong><p>Lihat progres jahitan dan dapatkan kabar melalui tautan khusus.</p></div></div>
         </div>
       </section>
 
       <section id="lacak" className="track-section">
-        <div className="track-section-copy"><span className="track-icon">◷</span><div><h2>Sudah punya pesanan?</h2><p>Masukkan kode atau tautan pelacakan untuk melihat kabar terbaru.</p></div></div>
+        <div className="track-section-copy"><span className="track-icon" aria-hidden="true">⌕</span><div><h2>Sudah punya pesanan?</h2><p>Masukkan kode atau tautan pelacakan untuk melihat status terbaru.</p></div></div>
         <div className="track-box">
           <form className="tracking-lookup" onSubmit={props.onTrack}>
             <label className="sr-only" htmlFor="tracking-link">Kode atau tautan pelacakan</label>
@@ -866,8 +1173,12 @@ function CustomerLanding(props: {
         </div>
       </section>
 
-      <footer className="storefront-footer"><a className="brand" href="/"><span className="brand-mark">J</span><span>jahit<span className="brand-accent">link</span></span></a><span>Merawat detail, menjahit cerita.</span><a href="/admin">Portal pemilik usaha ↗</a></footer>
-      <p className="prototype-note storefront-note"><span>ⓘ</span> Prototipe lokal: pesanan dicatat admin dan tersimpan di browser ini.</p>
+      <footer className="storefront-footer">
+        <a className="brand" href="/" aria-label="JahitLink beranda"><span className="brand-mark">J</span><span>jahit<span className="brand-accent">link</span></span></a>
+        <nav className="storefront-footer-nav" aria-label="Navigasi footer"><a href="/">Beranda</a><a href="#layanan">Layanan</a><a href="#cara-pesan">Tentang kami</a><a href="#lacak">Bantuan</a></nav>
+        <div className="storefront-footer-account"><a href="/pelanggan"><span aria-hidden="true">♟</span> Akun pelanggan</a><a href="/admin">Portal pemilik usaha ↗</a></div>
+      </footer>
+      <div className="storefront-bottom"><span>© 2026 Jahitlink. Semua hak dilindungi.</span><span>Merawat detail, menjahit cerita.</span></div>
     </main>
   );
 }
@@ -882,6 +1193,7 @@ function CreateOrderModal({ onClose, onSubmit }: { onClose: () => void; onSubmit
           <div className="form-section"><h3>Informasi pelanggan</h3><div className="form-grid">
             <label>Nama pelanggan<input name="customer" required placeholder="Contoh: Rina" /></label>
             <label>Nomor WhatsApp<input name="phone" placeholder="08xx-xxxx-xxxx" /></label>
+            <label className="full">Alamat pelanggan<textarea name="address" rows={2} maxLength={500} placeholder="Nama jalan, nomor rumah, RT/RW, kelurahan, kecamatan, kota" /></label>
           </div></div>
           <div className="form-section"><h3>Detail pesanan</h3><div className="form-grid">
             <label>Jenis layanan<select name="service"><option>Jahit baru</option><option>Permak</option><option>Perbaikan</option></select></label>
