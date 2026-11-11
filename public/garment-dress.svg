@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 220" fill="none">
+  <defs>
+    <linearGradient id="background" x1="20" y1="8" x2="165" y2="214" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#f4f3ed"/>
+      <stop offset="1" stop-color="#e6ebe3"/>
+    </linearGradient>
+    <linearGradient id="fabric" x1="53" y1="53" x2="130" y2="193" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#aab7a5"/>
+      <stop offset=".55" stop-color="#768b7b"/>
+      <stop offset="1" stop-color="#596f61"/>
+    </linearGradient>
+  </defs>
+  <rect width="180" height="220" rx="8" fill="url(#background)"/>
+  <path d="M89 14v20m-7-13h14" stroke="#76674e" stroke-width="3" stroke-linecap="round"/>
+  <path d="M82 34h15v12H82z" fill="#b9a784"/>
+  <path d="M75 48c-4 5-12 8-20 12L37 74l15 27 16-8-7 46 8 48h43l8-48-7-46 16 8 15-27-18-14c-8-4-17-7-21-12l-8 9H83l-8-9Z" fill="url(#fabric)" stroke="#4f6759" stroke-width="2" stroke-linejoin="round"/>
+  <path d="m75 48 14 15 13-15m-13 15v55m13-55-13 12m-27 21 9 7m38-7-9 7M67 139h48" stroke="#d2d7c8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M89 63v7m0 7v7m0 7v7" stroke="#e0e2d7" stroke-width="2" stroke-linecap="round"/>
+  <path d="M90 196v13m-22 0h44" stroke="#78694f" stroke-width="3" stroke-linecap="round"/>
+  <ellipse cx="90" cy="213" rx="38" ry="3" fill="#758575" opacity=".22"/>
+</svg>

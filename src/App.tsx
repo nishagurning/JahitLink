@@ -809,74 +809,117 @@ function CustomerPortal() {
     return (
       <main className="customer-account-page">
         <header className="customer-account-header">
-          <a className="brand" href="/"><span className="brand-mark">J</span><span>jahit<span className="brand-accent">link</span></span></a>
+          <a className="brand" href="/" aria-label="JahitLink beranda"><span className="brand-mark"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M5 8h4v11h13v-3h-5V9h5l4 4v7h2v3H3v-3h2V8Zm5-2h10v2H10V6Zm13 8h3l-3-3v3ZM8 24a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm16 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z"/></svg></span><span>Jahit<span className="brand-accent">Link</span></span></a>
+          <nav className="customer-header-nav" aria-label="Navigasi utama">
+            <a href="/">⌂ <span>Beranda</span></a>
+            <a className="active" href="#customer-orders">▣ <span>Pesanan Saya</span></a>
+          </nav>
           <div className="customer-account-user">
             <span className="customer-account-avatar">{customer.name.slice(0, 1).toUpperCase()}</span>
-            <span className="customer-account-greeting">Halo, <strong>{customer.name}</strong></span>
-            <button className="logout-button" type="button" onClick={() => void logout()}>Keluar</button>
+            <span className="customer-account-greeting"><strong>{customer.name}</strong><small>Pelanggan</small></span>
+            <button className="logout-button" type="button" onClick={() => void logout()} aria-label="Keluar">⌄</button>
           </div>
         </header>
-        <section className="customer-account-content">
-          <section className="customer-account-hero">
-            <div className="customer-account-hero-copy">
-              <p className="eyebrow">RUANG PERSONAL ANDA</p>
-              <h1>Jahitan istimewa,<br /><em>selalu terpantau.</em></h1>
-              <p>Pantau setiap kabar terbaru dari penjahit, dari proses pengerjaan hingga siap dikenakan.</p>
+        <div className="customer-dashboard-layout">
+          <aside className="customer-sidebar">
+            <div className="customer-sidebar-profile" id="customer-profile">
+              <span className="customer-sidebar-avatar" aria-hidden="true"><svg viewBox="0 0 32 32"><circle cx="16" cy="10" r="6"/><path d="M5 28c0-6.1 4.9-10 11-10s11 3.9 11 10H5Z"/></svg></span>
+              <strong>{customer.name}</strong>
+              <span>Pelanggan</span>
             </div>
-            <div className="customer-account-hero-art" aria-hidden="true">
-              <span className="customer-hero-orbit" />
-              <span className="customer-hero-needle">✦</span>
-              <span className="customer-hero-thread">J</span>
-              <span className="customer-hero-caption">MADE FOR YOU</span>
-            </div>
-          </section>
+            <nav className="customer-sidebar-nav" aria-label="Menu pelanggan">
+              <a href="/">⌂ <span>Beranda</span></a>
+              <a className="active" href="#customer-orders">▣ <span>Pesanan Saya</span></a>
+              <a href="#customer-profile">● <span>Profil Saya</span></a>
+              <button type="button" onClick={() => void logout()}>⇥ <span>Keluar</span></button>
+            </nav>
+            <img className="customer-sidebar-art" src="/hero-sewing.svg" alt="" />
+          </aside>
+          <section className="customer-account-content">
+            <section className="customer-account-hero">
+              <div className="customer-account-hero-copy">
+                <h1>Halo, {customer.name}!</h1>
+                <p>Pantau progres jahitan Anda di sini <span aria-hidden="true">♡</span></p>
+              </div>
+            </section>
 
-          <div className="customer-orders-toolbar">
-            <div>
-              <p className="eyebrow">DASHBOARD PELANGGAN</p>
-              <h2>Pesanan saya <span>{orders.length}</span></h2>
-              <p>{orders.length ? `${activeOrders} pesanan masih dalam proses` : "Semua pesanan jahit Anda akan tampil di sini."}</p>
-            </div>
-            <button className="button button-secondary customer-orders-refresh" type="button" onClick={() => void refreshCustomerOrders()} disabled={refreshingOrders}>
-              <span aria-hidden="true">↻</span> {refreshingOrders ? "Memuat..." : "Muat ulang"}
-            </button>
-          </div>
-          {error && <p className="admin-access-error" role="alert">{error}</p>}
-          {orders.length === 0 ? (
-            <div className="customer-orders-empty">
-              <span className="customer-empty-art" aria-hidden="true"><span>J</span><i>✦</i></span>
-              <p className="eyebrow">SIAP UNTUK MULAI?</p>
-              <h2>Perjalanan jahitan Anda dimulai di sini.</h2>
-              <p>Pesanan akan muncul otomatis setelah admin menghubungkannya ke akun ini. Silakan hubungi studio jika Anda sudah memiliki pesanan.</p>
-              <a className="button button-primary" href="/">Kembali ke halaman utama <span aria-hidden="true">→</span></a>
-            </div>
-          ) : (
-            <div className="customer-orders-list">
-              {orders.map((order) => (
-                <article className="customer-order-card" key={order.id}>
-                  <div className="customer-order-heading">
-                    <div className="customer-order-identity">
-                      <span className="customer-order-icon" aria-hidden="true">✦</span>
-                      <div><p className="eyebrow">{order.id} <span>·</span> {formatDate(order.createdAt)}</p><h3>{order.garment}</h3><p>{order.service}</p></div>
-                    </div>
-                    <StatusBadge status={order.status} />
-                  </div>
-                  <div className="customer-order-progress" aria-label={`Status pesanan: ${order.status}`}>
-                    <span className="customer-progress-line"><i className={order.status === "Menunggu pengerjaan" || order.status === "Menunggu konfirmasi" ? "current" : "complete"} /><i className={order.status === "Dalam pengerjaan" ? "current" : ["Siap fitting", "Perlu revisi", "Siap diambil", "Selesai"].includes(order.status) ? "complete" : ""} /><i className={order.status === "Siap fitting" || order.status === "Perlu revisi" ? "current" : ["Siap diambil", "Selesai"].includes(order.status) ? "complete" : ""} /><i className={order.status === "Siap diambil" ? "current" : order.status === "Selesai" ? "complete" : ""} /><i className={order.status === "Selesai" ? "current" : ""} /></span>
-                    <div className="customer-progress-labels"><span>Diterima</span><span>Dijahit</span><span>Fitting</span><span>Siap diambil</span><span>Selesai</span></div>
-                  </div>
-                  <div className="customer-order-summary">
-                    <span>Target selesai <strong>{formatDate(order.dueDate)}</strong></span>
-                    <span>Total biaya <strong>{order.total > 0 ? formatCurrency(order.total) : "Menunggu estimasi"}</strong></span>
-                    {order.total > 0 && <span>Sisa pembayaran <strong className={order.total - order.paid <= 0 ? "customer-paid" : ""}>{formatCurrency(Math.max(0, order.total - order.paid))}</strong></span>}
-                  </div>
-                  <a className="button button-primary customer-order-action" href={`/track/${encodeURIComponent(order.token)}`}>Lihat progres pesanan <span aria-hidden="true">→</span></a>
-                </article>
-              ))}
-            </div>
-          )}
-          <p className="customer-account-footnote"><span aria-hidden="true">✦</span> Dijahit dengan perhatian, diperbarui khusus untuk Anda.</p>
-        </section>
+            <section className="customer-orders-panel" id="customer-orders">
+              <div className="customer-orders-toolbar">
+                <h2><span className="customer-orders-icon" aria-hidden="true">▣</span>Pesanan Terbaru <span className="customer-orders-count">{orders.length}</span></h2>
+                <div className="customer-orders-actions">
+                  <a href="#customer-orders-list">Lihat Semua <span aria-hidden="true">→</span></a>
+                  <button className="customer-orders-refresh" type="button" onClick={() => void refreshCustomerOrders()} disabled={refreshingOrders} aria-label="Muat ulang pesanan">
+                    {refreshingOrders ? "…" : "↻"}
+                  </button>
+                </div>
+              </div>
+              {error && <p className="admin-access-error" role="alert">{error}</p>}
+              {orders.length === 0 ? (
+                <div className="customer-orders-empty">
+                  <span className="customer-empty-art" aria-hidden="true"><span>J</span><i>✦</i></span>
+                  <p className="eyebrow">SIAP UNTUK MULAI?</p>
+                  <h2>Perjalanan jahitan Anda dimulai di sini.</h2>
+                  <p>Pesanan akan muncul otomatis setelah admin menghubungkannya ke akun ini. Silakan hubungi studio jika Anda sudah memiliki pesanan.</p>
+                  <a className="button button-primary" href="/">Kembali ke halaman utama <span aria-hidden="true">→</span></a>
+                </div>
+              ) : (
+                <div className="customer-orders-list" id="customer-orders-list">
+                  {orders.map((order) => {
+                    const progressStep = {
+                      "Menunggu konfirmasi": 1,
+                      "Menunggu pengerjaan": 2,
+                      "Dalam pengerjaan": 2,
+                      "Siap fitting": 3,
+                      "Perlu revisi": 3,
+                      "Siap diambil": 4,
+                      "Selesai": 5,
+                    }[order.status];
+                    const progressPercent = Math.min(progressStep * 25, 100);
+                    return (
+                      <article className="customer-order-card" key={order.id}>
+                        <div className="customer-order-overview">
+                          <img className="customer-order-image" src="/garment-dress.svg" alt="" />
+                          <div className="customer-order-details">
+                            <div className="customer-order-title-row">
+                              <p className="customer-order-id">{order.id}</p>
+                              <StatusBadge status={order.status} />
+                            </div>
+                            <h3>{order.garment}</h3>
+                            <p className="customer-order-service">{order.service}</p>
+                            <div className="customer-order-dates">
+                              <span><i aria-hidden="true">◷</i> Pesanan: {formatDate(order.createdAt)}</span>
+                              <span><i aria-hidden="true">◷</i> Estimasi selesai: {formatDate(order.dueDate)}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="customer-order-progress" aria-label={`Status pesanan: ${order.status}`}>
+                          <div className="customer-progress-line">
+                            <span className="customer-progress-track" style={{ background: `linear-gradient(to right, #249461 ${progressPercent}%, #e5ebe7 ${progressPercent}%)` }} />
+                            {["Pesanan Diterima", "Pengukuran Selesai", "Proses Pemotongan", "Proses Penjahitan", "Selesai"].map((step, index) => (
+                              <span className={`customer-progress-step${index < progressStep ? " complete" : ""}`} key={step}>
+                                <i>{index < progressStep ? "✓" : ""}</i>
+                                <small>{step}</small>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="customer-order-footer">
+                          <div className="customer-order-summary">
+                            <span>Total biaya <strong>{order.total > 0 ? formatCurrency(order.total) : "Menunggu estimasi"}</strong></span>
+                            {order.total > 0 && <span>Sisa pembayaran <strong className={order.total - order.paid <= 0 ? "customer-paid" : ""}>{formatCurrency(Math.max(0, order.total - order.paid))}</strong></span>}
+                          </div>
+                          <a className="customer-order-action" href={`/track/${encodeURIComponent(order.token)}`}>Lihat progres <span aria-hidden="true">→</span></a>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+              {orders.length > 0 && <p className="customer-orders-status">{activeOrders} pesanan masih dalam proses</p>}
+            </section>
+            <p className="customer-account-footnote"><span aria-hidden="true">✦</span> Dijahit dengan perhatian, diperbarui khusus untuk Anda.</p>
+          </section>
+        </div>
       </main>
     );
   }
