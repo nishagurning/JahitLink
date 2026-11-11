@@ -354,7 +354,7 @@ app.post("/api/auth/logout", (req, res) => {
 app.get("/api/customer/auth/status", (req, res) => {
   const session = currentCustomerSession(req);
   if (!session) return res.json({ authenticated: false, customer: null });
-  const customer = db.prepare("SELECT id, name FROM customer_accounts WHERE id = ?").get(session.customerId);
+  const customer = db.prepare("SELECT id, name, phone FROM customer_accounts WHERE id = ?").get(session.customerId);
   if (!customer) return res.json({ authenticated: false, customer: null });
   return res.json({ authenticated: true, customer });
 });
@@ -383,7 +383,7 @@ app.post("/api/customer/auth/register", allowLoginAttempt, (req, res) => {
     if (error.code === "SQLITE_CONSTRAINT_UNIQUE") return apiError(res, 409, "Nomor HP ini sudah terdaftar. Silakan masuk.");
     throw error;
   }
-  const customer = { id: Number(result.lastInsertRowid), name };
+  const customer = { id: Number(result.lastInsertRowid), name, phone: normalizedPhone };
   createCustomerSession(res, customer.id);
   return res.status(201).json({ authenticated: true, customer });
 });
@@ -391,7 +391,7 @@ app.post("/api/customer/auth/register", allowLoginAttempt, (req, res) => {
 app.post("/api/customer/auth/login", allowLoginAttempt, (req, res) => {
   const phone = normalizeText(req.body?.phone, 40).replace(/\D/g, "");
   const password = req.body?.password;
-  const customer = db.prepare("SELECT id, name, password_salt, password_hash FROM customer_accounts WHERE phone = ?")
+  const customer = db.prepare("SELECT id, name, phone, password_salt, password_hash FROM customer_accounts WHERE phone = ?")
     .get(phone);
   if (!customer || typeof password !== "string" || password.length > 200) {
     return apiError(res, 401, "Nomor HP atau kata sandi salah.");
@@ -401,7 +401,7 @@ app.post("/api/customer/auth/login", allowLoginAttempt, (req, res) => {
   if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
     return apiError(res, 401, "Nomor HP atau kata sandi salah.");
   }
-  const account = { id: customer.id, name: customer.name };
+  const account = { id: customer.id, name: customer.name, phone: customer.phone };
   createCustomerSession(res, account.id);
   return res.json({ authenticated: true, customer: account });
 });

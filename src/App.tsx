@@ -45,7 +45,7 @@ type Order = {
 };
 
 type CustomerAccount = { id: number; name: string; phone: string };
-type CustomerIdentity = { id: number; name: string };
+type CustomerIdentity = { id: number; name: string; phone?: string };
 type CustomerOrder = {
   id: string;
   token: string;
@@ -443,6 +443,9 @@ function App() {
   if (window.location.pathname === "/pelanggan" || window.location.pathname.startsWith("/pelanggan/")) {
     return <CustomerPortal />;
   }
+  if (window.location.pathname === "/masuk") {
+    return <LoginChoice />;
+  }
   if (!isAdminRoute) {
     return <CustomerLanding trackError={trackError} onTrack={openCustomerTracking} />;
   }
@@ -681,7 +684,7 @@ function AdminAccess({ setupRequired, onAuthenticated }: { setupRequired: boolea
           <button className="button button-primary button-full" type="submit">{isSetup ? "Buat akun dan masuk" : "Masuk"}</button>
         </form>
         <p className="admin-access-note">Kredensial diperiksa oleh server. Sesi berakhir otomatis setelah 8 jam.</p>
-        <a className="admin-access-home" href="/">← Kembali ke halaman pelanggan</a>
+        <a className="admin-access-home" href="/masuk">← Pilih jenis akun</a>
       </section>
     </main>
   );
@@ -806,120 +809,132 @@ function CustomerPortal() {
 
   if (customer) {
     const activeOrders = orders.filter((order) => order.status !== "Selesai").length;
+    const featuredOrder = orders[0];
+    const progressLabels = ["Pesanan Diterima", "Pengukuran Selesai", "Proses Pemotongan", "Proses Penjahitan", "Selesai"];
+    const progressStep = featuredOrder ? getCustomerProgressStep(featuredOrder.status) : 0;
+    const progressPercent = Math.max(0, ((progressStep - 1) / (progressLabels.length - 1)) * 100);
     return (
-      <main className="customer-account-page">
+      <main className="customer-account-page" id="customer-home">
         <header className="customer-account-header">
-          <a className="brand" href="/" aria-label="JahitLink beranda"><span className="brand-mark"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M5 8h4v11h13v-3h-5V9h5l4 4v7h2v3H3v-3h2V8Zm5-2h10v2H10V6Zm13 8h3l-3-3v3ZM8 24a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm16 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z"/></svg></span><span>Jahit<span className="brand-accent">Link</span></span></a>
+          <a className="brand" href="/pelanggan" aria-label="JahitLink beranda"><span className="brand-mark"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M5 8h4v11h13v-3h-5V9h5l4 4v7h2v3H3v-3h2V8Zm5-2h10v2H10V6Zm13 8h3l-3-3v3ZM8 24a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm16 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z"/></svg></span><span>Jahit<span className="brand-accent">Link</span></span></a>
           <nav className="customer-header-nav" aria-label="Navigasi utama">
-            <a href="/">⌂ <span>Beranda</span></a>
-            <a className="active" href="#customer-orders">▣ <span>Pesanan Saya</span></a>
+            <a className="active" href="#customer-home">⌂ <span>Beranda</span></a>
+            <a href="#order-history">▣ <span>Pesanan Saya</span></a>
+            <a href="#profile-card">♙ <span>Profil Saya</span></a>
+            <a href="#help-card">ⓘ <span>Bantuan</span></a>
           </nav>
           <div className="customer-account-user">
             <span className="customer-account-avatar">{customer.name.slice(0, 1).toUpperCase()}</span>
             <span className="customer-account-greeting"><strong>{customer.name}</strong><small>Pelanggan</small></span>
-            <button className="logout-button" type="button" onClick={() => void logout()} aria-label="Keluar">⌄</button>
+            <button className="logout-button" type="button" onClick={() => void logout()}>Keluar</button>
           </div>
         </header>
-        <div className="customer-dashboard-layout">
-          <aside className="customer-sidebar">
-            <div className="customer-sidebar-profile" id="customer-profile">
-              <span className="customer-sidebar-avatar" aria-hidden="true"><svg viewBox="0 0 32 32"><circle cx="16" cy="10" r="6"/><path d="M5 28c0-6.1 4.9-10 11-10s11 3.9 11 10H5Z"/></svg></span>
-              <strong>{customer.name}</strong>
-              <span>Pelanggan</span>
-            </div>
-            <nav className="customer-sidebar-nav" aria-label="Menu pelanggan">
-              <a href="/">⌂ <span>Beranda</span></a>
-              <a className="active" href="#customer-orders">▣ <span>Pesanan Saya</span></a>
-              <a href="#customer-profile">● <span>Profil Saya</span></a>
-              <button type="button" onClick={() => void logout()}>⇥ <span>Keluar</span></button>
-            </nav>
-            <img className="customer-sidebar-art" src="/hero-sewing.svg" alt="" />
-          </aside>
-          <section className="customer-account-content">
-            <section className="customer-account-hero">
-              <div className="customer-account-hero-copy">
-                <h1>Halo, {customer.name}!</h1>
-                <p>Pantau progres jahitan Anda di sini <span aria-hidden="true">♡</span></p>
-              </div>
-            </section>
+        <section className="customer-account-hero">
+          <div className="customer-account-hero-copy">
+            <p className="eyebrow">BERANDA PELANGGAN</p>
+            <h1>Halo, {customer.name}! <span aria-hidden="true">👋</span></h1>
+            <h2>Pantau progres jahitan Anda dengan mudah di JahitLink</h2>
+            <p>Kami selalu berusaha memberikan hasil terbaik untuk setiap pesanan Anda.</p>
+            <a className="customer-hero-action" href={featuredOrder ? "#order-history" : "/#cara-pesan"}>
+              {featuredOrder ? "Lihat Pesanan Saya" : "Panduan Pemesanan"} <span aria-hidden="true">→</span>
+            </a>
+          </div>
+        </section>
 
-            <section className="customer-orders-panel" id="customer-orders">
-              <div className="customer-orders-toolbar">
-                <h2><span className="customer-orders-icon" aria-hidden="true">▣</span>Pesanan Terbaru <span className="customer-orders-count">{orders.length}</span></h2>
-                <div className="customer-orders-actions">
-                  <a href="#customer-orders-list">Lihat Semua <span aria-hidden="true">→</span></a>
+        <div className="customer-home-layout">
+          <div className="customer-home-main">
+            <section className="customer-dashboard-panel customer-feature-panel" id="customer-orders">
+              <div className="customer-dashboard-panel-heading">
+                <h2><span className="customer-panel-icon">▣</span>Pesanan Terbaru Anda</h2>
+                <div className="customer-dashboard-panel-actions">
+                  <a href="#order-history">Lihat Semua Pesanan <span aria-hidden="true">→</span></a>
                   <button className="customer-orders-refresh" type="button" onClick={() => void refreshCustomerOrders()} disabled={refreshingOrders} aria-label="Muat ulang pesanan">
                     {refreshingOrders ? "…" : "↻"}
                   </button>
                 </div>
               </div>
               {error && <p className="admin-access-error" role="alert">{error}</p>}
-              {orders.length === 0 ? (
-                <div className="customer-orders-empty">
-                  <span className="customer-empty-art" aria-hidden="true"><span>J</span><i>✦</i></span>
-                  <p className="eyebrow">SIAP UNTUK MULAI?</p>
-                  <h2>Perjalanan jahitan Anda dimulai di sini.</h2>
-                  <p>Pesanan akan muncul otomatis setelah admin menghubungkannya ke akun ini. Silakan hubungi studio jika Anda sudah memiliki pesanan.</p>
-                  <a className="button button-primary" href="/">Kembali ke halaman utama <span aria-hidden="true">→</span></a>
+              {featuredOrder ? (
+                <div className="customer-featured-order">
+                  <img className="customer-featured-image" src="/garment-dress.svg" alt="" />
+                  <div className="customer-featured-info">
+                    <div className="customer-featured-title">
+                      <strong>{featuredOrder.id}</strong>
+                      <StatusBadge status={featuredOrder.status} />
+                    </div>
+                    <p className="customer-featured-label">Jenis Pakaian <span>:</span> <strong>{featuredOrder.garment}</strong></p>
+                    <p className="customer-featured-label">Tanggal Pesanan <span>:</span> <strong>{formatDate(featuredOrder.createdAt)}</strong></p>
+                    <div className="customer-due-highlight"><span>◷</span><div><small>Estimasi Selesai</small><strong>{formatDate(featuredOrder.dueDate)}</strong></div></div>
+                  </div>
+                  <div className="customer-featured-progress">
+                    <h3>Progres Jahitan</h3>
+                    <div className="customer-progress-line">
+                      <span className="customer-progress-track" style={{ background: `linear-gradient(to right, #249461 ${progressPercent}%, #e5ebe7 ${progressPercent}%)` }} />
+                      {progressLabels.map((label, index) => {
+                        const complete = featuredOrder.status === "Selesai" || index < progressStep - 1;
+                        const current = featuredOrder.status !== "Selesai" && index === progressStep - 1;
+                        return (
+                          <span className={`customer-progress-step${complete ? " complete" : ""}${current ? " current" : ""}`} key={label}>
+                            <i>{complete ? "✓" : ""}</i><small>{label}</small>
+                          </span>
+                        );
+                      })}
+                    </div>
+                    <div className="customer-stage-note"><span aria-hidden="true">ⓘ</span><p>Pesanan Anda saat ini dalam tahap <strong>{featuredOrder.status}</strong>.</p><a href={`/track/${encodeURIComponent(featuredOrder.token)}`}>Detail <span aria-hidden="true">→</span></a></div>
+                  </div>
                 </div>
               ) : (
-                <div className="customer-orders-list" id="customer-orders-list">
-                  {orders.map((order) => {
-                    const progressStep = {
-                      "Menunggu konfirmasi": 1,
-                      "Menunggu pengerjaan": 2,
-                      "Dalam pengerjaan": 2,
-                      "Siap fitting": 3,
-                      "Perlu revisi": 3,
-                      "Siap diambil": 4,
-                      "Selesai": 5,
-                    }[order.status];
-                    const progressPercent = Math.min(progressStep * 25, 100);
-                    return (
-                      <article className="customer-order-card" key={order.id}>
-                        <div className="customer-order-overview">
-                          <img className="customer-order-image" src="/garment-dress.svg" alt="" />
-                          <div className="customer-order-details">
-                            <div className="customer-order-title-row">
-                              <p className="customer-order-id">{order.id}</p>
-                              <StatusBadge status={order.status} />
-                            </div>
-                            <h3>{order.garment}</h3>
-                            <p className="customer-order-service">{order.service}</p>
-                            <div className="customer-order-dates">
-                              <span><i aria-hidden="true">◷</i> Pesanan: {formatDate(order.createdAt)}</span>
-                              <span><i aria-hidden="true">◷</i> Estimasi selesai: {formatDate(order.dueDate)}</span>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="customer-order-progress" aria-label={`Status pesanan: ${order.status}`}>
-                          <div className="customer-progress-line">
-                            <span className="customer-progress-track" style={{ background: `linear-gradient(to right, #249461 ${progressPercent}%, #e5ebe7 ${progressPercent}%)` }} />
-                            {["Pesanan Diterima", "Pengukuran Selesai", "Proses Pemotongan", "Proses Penjahitan", "Selesai"].map((step, index) => (
-                              <span className={`customer-progress-step${index < progressStep ? " complete" : ""}`} key={step}>
-                                <i>{index < progressStep ? "✓" : ""}</i>
-                                <small>{step}</small>
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                        <div className="customer-order-footer">
-                          <div className="customer-order-summary">
-                            <span>Total biaya <strong>{order.total > 0 ? formatCurrency(order.total) : "Menunggu estimasi"}</strong></span>
-                            {order.total > 0 && <span>Sisa pembayaran <strong className={order.total - order.paid <= 0 ? "customer-paid" : ""}>{formatCurrency(Math.max(0, order.total - order.paid))}</strong></span>}
-                          </div>
-                          <a className="customer-order-action" href={`/track/${encodeURIComponent(order.token)}`}>Lihat progres <span aria-hidden="true">→</span></a>
-                        </div>
-                      </article>
-                    );
-                  })}
+                <div className="customer-dashboard-empty">
+                  <span className="customer-empty-art" aria-hidden="true"><span>J</span><i>✦</i></span>
+                  <div><h3>Belum ada pesanan di akun Anda</h3><p>Pesanan akan tampil di sini setelah studio menghubungkannya ke akun Anda.</p></div>
                 </div>
+              )}
+            </section>
+
+            <section className="customer-dashboard-panel customer-history-panel" id="order-history">
+              <div className="customer-dashboard-panel-heading">
+                <h2><span className="customer-panel-icon">◷</span>Riwayat Pesanan</h2>
+                <span className="customer-history-count">{orders.length} pesanan</span>
+              </div>
+              {orders.length > 0 ? (
+                <div className="customer-history-scroll">
+                  <table className="customer-history-table">
+                    <thead><tr><th>No. Pesanan</th><th>Tanggal Pesanan</th><th>Jenis Pakaian</th><th>Status</th><th>Estimasi Selesai</th><th>Aksi</th></tr></thead>
+                    <tbody>
+                      {orders.map((order) => (
+                        <tr key={order.id}>
+                          <td><strong>{order.id}</strong></td>
+                          <td>{formatDate(order.createdAt)}</td>
+                          <td>{order.garment}</td>
+                          <td><StatusBadge status={order.status} /></td>
+                          <td>{formatDate(order.dueDate)}</td>
+                          <td><a className="customer-history-action" href={`/track/${encodeURIComponent(order.token)}`}>◉ Detail</a></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="customer-history-empty">Riwayat pesanan Anda akan muncul di sini.</p>
               )}
               {orders.length > 0 && <p className="customer-orders-status">{activeOrders} pesanan masih dalam proses</p>}
             </section>
-            <p className="customer-account-footnote"><span aria-hidden="true">✦</span> Dijahit dengan perhatian, diperbarui khusus untuk Anda.</p>
-          </section>
+          </div>
+
+          <aside className="customer-home-side">
+            <section className="customer-dashboard-panel customer-help-panel" id="help-card">
+              <div className="customer-side-card-title"><span className="customer-side-icon">♡</span><div><h2>Butuh Bantuan?</h2><p>Jika ada pertanyaan, silakan hubungi studio tempat Anda memesan.</p></div></div>
+              <a className="customer-outline-action" href="/#cara-pesan">Lihat Cara Pemesanan <span aria-hidden="true">→</span></a>
+              <img src="/process-sewing.svg" alt="" />
+            </section>
+            <section className="customer-dashboard-panel customer-profile-panel" id="profile-card">
+              <div className="customer-side-card-title"><span className="customer-side-icon">♙</span><h2>Informasi Akun</h2></div>
+              <dl><div><dt>Nama</dt><dd>{customer.name}</dd></div><div><dt>Nomor HP</dt><dd>{customer.phone || "Tidak tersedia"}</dd></div></dl>
+              <a className="customer-outline-action" href="#profile-card">Profil Saya <span aria-hidden="true">→</span></a>
+            </section>
+          </aside>
         </div>
+        <footer className="customer-dashboard-footer"><a className="brand" href="/pelanggan"><span className="brand-mark">J</span><span>Jahit<span className="brand-accent">Link</span></span></a><span>Menjahit dengan hati, melayani dengan sepenuh hati.</span><nav><a href="#customer-home">Beranda</a><a href="#order-history">Pesanan Saya</a><a href="#help-card">Bantuan</a></nav></footer>
       </main>
     );
   }
@@ -949,7 +964,37 @@ function CustomerPortal() {
         <button className="customer-auth-switch" type="button" onClick={() => { setIsRegister((current) => !current); setError(""); }}>
           {isRegister ? "Sudah punya akun? Masuk" : "Belum punya akun? Daftar"}
         </button>
+        <a className="customer-auth-staff-link" href="/admin">Masuk sebagai admin atau penjahit</a>
         <p className="admin-access-note">Akun baru hanya dapat melihat pesanan setelah admin menautkannya.</p>
+        <a className="admin-access-home" href="/">← Kembali ke halaman utama</a>
+      </section>
+    </main>
+  );
+}
+
+function LoginChoice() {
+  return (
+    <main className="login-choice-page">
+      <section className="login-choice-card">
+        <a className="brand" href="/" aria-label="Kembali ke JahitLink">
+          <span className="brand-mark">J</span>
+          <span>jahit<span className="brand-accent">link</span></span>
+        </a>
+        <p className="eyebrow">SELAMAT DATANG</p>
+        <h1>Masuk ke JahitLink</h1>
+        <p className="login-choice-description">Pilih portal sesuai akun yang Anda gunakan.</p>
+        <div className="login-choice-options">
+          <a className="login-choice-option" href="/pelanggan">
+            <span className="login-choice-icon customer">♙</span>
+            <span><strong>Pelanggan</strong><small>Masuk atau buat akun untuk melihat pesanan Anda.</small></span>
+            <span className="login-choice-arrow" aria-hidden="true">→</span>
+          </a>
+          <a className="login-choice-option" href="/admin">
+            <span className="login-choice-icon staff">✂</span>
+            <span><strong>Admin atau penjahit</strong><small>Kelola pesanan dan progres jahitan studio.</small></span>
+            <span className="login-choice-arrow" aria-hidden="true">→</span>
+          </a>
+        </div>
         <a className="admin-access-home" href="/">← Kembali ke halaman utama</a>
       </section>
     </main>
@@ -975,6 +1020,18 @@ function StatusBadge({ status }: { status: ProgressStatus }) {
         ? "blue"
         : "amber";
   return <span className={`status-badge ${tone}`}><span />{status}</span>;
+}
+
+function getCustomerProgressStep(status: ProgressStatus): number {
+  return {
+    "Menunggu konfirmasi": 1,
+    "Menunggu pengerjaan": 2,
+    "Dalam pengerjaan": 2,
+    "Siap fitting": 3,
+    "Perlu revisi": 3,
+    "Siap diambil": 4,
+    "Selesai": 5,
+  }[status];
 }
 
 function OrderDetail(props: {
@@ -1152,76 +1209,275 @@ function InfoField({ label, value, wide = false }: { label: string; value: strin
   return <div className={`info-field ${wide ? "wide" : ""}`}><span>{label}</span><strong>{value}</strong></div>;
 }
 
+
+const services = [
+  {
+    icon: "🧵",
+    title: "Jahit pakaian baru",
+    description: "Dari desain hingga model, kami bantu wujudkan pakaian impianmu.",
+    color: "purple",
+  },
+  {
+    icon: "👔",
+    title: "Permak pakaian",
+    description: "Sesuaikan ukuran agar pakaian lebih nyaman dipakai.",
+    color: "orange",
+  },
+  {
+    icon: "✂️",
+    title: "Perbaikan jahitan",
+    description: "Perbaiki pakaian kesayangan agar bisa dipakai kembali.",
+    color: "green",
+  },
+];
+
+const processes = [
+  {
+    number: "01",
+    icon: "☏",
+    title: "Konsultasi di studio",
+    description: "Diskusikan jenis pakaian, model, dan kebutuhan dengan penjahit.",
+  },
+  {
+    number: "02",
+    icon: "✓",
+    title: "Pesanan dicatat admin",
+    description: "Admin mencatat detail ukuran, bahan, dan jadwal pesanan.",
+  },
+  {
+    number: "03",
+    icon: "♧",
+    title: "Pakaian sampai selesai",
+    description: "Lihat progres jahitan dan dapatkan kabar melalui tautan khusus.",
+  },
+];
+
 function CustomerLanding(props: {
   trackError: string;
   onTrack: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   return (
-    <main className="storefront">
-      <header className="storefront-header">
-        <a className="brand" href="/" aria-label="JahitLink beranda"><span className="brand-mark">J</span><span>jahit<span className="brand-accent">link</span></span></a>
-        <nav className="storefront-nav" aria-label="Navigasi utama">
-          <a className="storefront-nav-home" href="/" aria-label="Beranda">⌂</a>
+    <div className="website">
+
+      {/* NAVBAR */}
+      <header className="navbar">
+        <a href="/" className="logo">
+          <span className="logo-icon">J</span>
+          <span>Jahitlink</span>
+        </a>
+
+        <nav className="nav-links">
+          <a href="#">Beranda</a>
           <a href="#layanan">Layanan</a>
-          <a href="#cara-pesan">Cara pesan</a>
-          <a href="#lacak">Lacak pesanan</a>
+          <a href="#proses">Cara Pesan</a>
+          <a href="#lacak">Lacak Pesanan</a>
         </nav>
-        <div className="storefront-access-links">
-          <a className="button button-secondary customer-login-link" href="/pelanggan">Masuk</a>
-          <a className="button button-primary storefront-start-link" href="#cara-pesan">Mulai pesanan <span aria-hidden="true">→</span></a>
+
+        <div className="nav-actions">
+          <a href="/masuk" className="login-btn">Masuk</a>
+          <a href="#layanan" className="primary-btn">
+            Mulai Pesanan <span>→</span>
+          </a>
         </div>
       </header>
 
-      <section className="storefront-hero">
-        <div className="hero-copy">
-          <span className="hero-kicker"><span className="hero-kicker-star">✦</span><span className="hero-kicker-dot" /> JAHITAN PERSONAL, HASIL ISTIMEWA</span>
-          <h1>Jahitan yang pas,<br /><em>untuk ceritamu.</em></h1>
-          <p>Wujudkan pakaian sesuai ukuran dan gayamu. Pesanan dicatat langsung oleh admin atau penjahit studio.</p>
-          <div className="hero-actions"><a href="#lacak" className="button button-primary"><span aria-hidden="true">◷</span> Lacak pesanan <span>→</span></a><a href="#cara-pesan" className="button button-secondary hero-process-link"><span aria-hidden="true">♧</span> Pelajari proses <span>↗</span></a></div>
-          <div className="hero-note"><span><i>✓</i> Ukuran presisi</span><span><i>✦</i> Proses transparan</span><span><i>♥</i> Kualitas terjamin</span></div>
-        </div>
-        <div className="hero-art">
-          <img src="/hero-sewing-photo.jpg" alt="Mesin jahit antik Husqvarna berwarna hijau di atas meja kayu" />
-        </div>
-      </section>
+      <main>
+        {/* HERO SECTION */}
+        <section className="hero">
+          <svg className="hero-stitching" viewBox="0 0 1200 420" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M75 26C230 70 284 15 377 12s127 59 213 45M12 346c136-64 176 8 260 40m590-50c98-83 187-37 305-87" />
+          </svg>
+          <div className="landing-mannequin" aria-hidden="true">
+            <svg viewBox="0 0 100 180" fill="none">
+              <path d="M44 16c0-6 3-10 7-10s7 4 7 10v12c0 6 6 12 13 16l12 9-10 18-12-7 6 43-7 44H40l-7-44 6-43-12 7-10-18 12-9c7-4 13-10 13-16V16Z" fill="#e4d4b3" stroke="#bca77e" strokeWidth="2" />
+              <path d="M34 59h35M35 105h31M51 28v18m0 0-17 13m17-13 18 13M44 151v17m14-17v17m-22 4h31" stroke="#bca77e" strokeWidth="2" strokeLinecap="round" />
+              <circle cx="51" cy="23" r="2" fill="#9d8055" />
+            </svg>
+          </div>
+          <div className="landing-spool" aria-hidden="true"><i /><span /></div>
+          <div className="hero-content">
+            <div className="eyebrow">
+              <span>✦</span> JAHITAN PERSONAL, HASIL ISTIMEWA
+            </div>
 
-      <section id="layanan" className="storefront-services">
-        <div className="section-heading"><div><p className="eyebrow"><span aria-hidden="true">✦</span> LAYANAN JAHIT</p><h2>Dari ide, jadi pakaian favorit.<span className="heading-spark" aria-hidden="true">♡</span></h2></div><p>Jahitan dibuat sesuai kebutuhanmu, dengan detail yang dibicarakan bersama penjahit.</p></div>
-        <div className="service-cards">
-          <article className="service-card service-card-lavender"><img className="service-icon lavender service-icon-image" src="/gaun.png" alt="Gaun" /><div><h3>Jahit pakaian baru</h3><p>Buat pakaian dengan model, bahan, dan ukuran pilihanmu.</p></div><span className="service-arrow" aria-hidden="true">→</span></article>
-          <article className="service-card service-card-peach"><span className="service-icon peach" aria-hidden="true">👔</span><div><h3>Permak pakaian</h3><p>Sesuaikan jahitan, ukuran, atau potongan agar nyaman dipakai.</p></div><span className="service-arrow" aria-hidden="true">→</span></article>
-          <article className="service-card service-card-green"><span className="service-icon mint" aria-hidden="true">✂️</span><div><h3>Perbaikan jahitan</h3><p>Perbaiki pakaian kesayangan agar bisa dipakai kembali.</p></div><span className="service-arrow" aria-hidden="true">→</span></article>
-        </div>
-      </section>
+            <h1>
+              Jahitan yang pas,
+              <span>untuk ceritamu.</span>
+            </h1>
 
-      <section id="cara-pesan" className="how-section">
-        <div className="how-intro"><p className="eyebrow"><span aria-hidden="true">✓</span> MUDAH DAN JELAS</p><h2>Pesan, pantau,<br />lalu <em>kenakan.</em></h2><p className="how-copy">Admin atau penjahit akan mencatat pesanan di studio. Pantau progres jahitan melalui kode pelacakan.</p><img className="how-illustration" src="/process-sewing.svg" alt="Ilustrasi manekin, kain terlipat, dan benang jahit" /></div>
-        <div className="how-steps">
-          <div className="how-step"><span>01</span><i className="how-step-icon" aria-hidden="true">☏</i><div><strong>Konsultasi di studio</strong><p>Diskusikan jenis pakaian, model, dan kebutuhan dengan penjahit.</p></div></div>
-          <div className="how-step"><span>02</span><i className="how-step-icon" aria-hidden="true">✓</i><div><strong>Pesanan dicatat admin</strong><p>Admin mencatat detail ukuran, bahan, dan jadwal jahitanmu.</p></div></div>
-          <div className="how-step"><span>03</span><i className="how-step-icon" aria-hidden="true">⌁</i><div><strong>Pantau sampai selesai</strong><p>Lihat progres jahitan dan dapatkan kabar melalui tautan khusus.</p></div></div>
-        </div>
-      </section>
+            <div className="yellow-line"></div>
 
-      <section id="lacak" className="track-section">
-        <div className="track-section-copy"><span className="track-icon" aria-hidden="true">⌕</span><div><h2>Sudah punya pesanan?</h2><p>Masukkan kode atau tautan pelacakan untuk melihat status terbaru.</p></div></div>
-        <div className="track-box">
-          <form className="tracking-lookup" onSubmit={props.onTrack}>
+            <p className="hero-description">
+              Wujudkan pakaian sesuai ukuran dan gayamu.
+              Pesanan dicatat langsung oleh admin atau penjahit studio.
+            </p>
+
+            <div className="hero-buttons">
+              <a href="#lacak" className="primary-btn hero-btn">
+                ▣ &nbsp; Lacak Pesanan <span>→</span>
+              </a>
+
+              <a href="#proses" className="secondary-btn">
+                ▶ &nbsp; Pelajari Proses
+              </a>
+            </div>
+
+            <div className="hero-features">
+              <span>✓ Ukuran presisi</span>
+              <span>✦ Proses transparan</span>
+              <span>♥ Kualitas terjamin</span>
+            </div>
+          </div>
+
+          <div className="hero-image">
+            <img
+              src="/hero-sewing-photo.jpg"
+              alt="Mesin jahit profesional"
+            />
+            <div className="image-decoration">✿</div>
+          </div>
+          <div className="hero-spark hero-spark-left" aria-hidden="true">✦</div>
+          <div className="hero-spark hero-spark-right" aria-hidden="true">✧</div>
+        </section>
+
+        {/* SERVICES */}
+        <section className="services section-container" id="layanan">
+          <div className="section-heading">
+            <div>
+              <div className="eyebrow">
+                <span>✦</span> LAYANAN KAMI
+              </div>
+              <h2>
+                Dari ide, jadi pakaian favorit. <span className="heart">♡</span>
+              </h2>
+            </div>
+
+            <p>
+              Jahitan dibuat sesuai kebutuhanmu, dengan hasil
+              yang diperhatikan bersama penjahit.
+            </p>
+          </div>
+
+          <div className="service-grid">
+            {services.map((service) => (
+              <a
+                href="#lacak"
+                className={`service-card ${service.color}`}
+                key={service.title}
+              >
+                <div className="service-icon">{service.icon}</div>
+
+                <div className="service-info">
+                  <h3>{service.title}</h3>
+                  <p>{service.description}</p>
+                </div>
+
+                <div className="service-arrow">→</div>
+              </a>
+            ))}
+          </div>
+        </section>
+
+        {/* PROCESS */}
+        <section className="process section-container" id="proses">
+          <div className="process-left">
+            <div className="eyebrow">
+              <span>✦</span> MUDAH DAN JELAS
+            </div>
+
+            <h2>
+              Pesan, pantau,
+              <br />
+              lalu <span>kenakan.</span>
+            </h2>
+
+            <p>
+              Jahitlink membantu proses pemesanan pakaian menjadi
+              lebih mudah, mulai dari konsultasi hingga pakaian selesai.
+            </p>
+
+            <img
+              src="/process-sewing.svg"
+              alt="Ilustrasi proses menjahit"
+              className="process-image"
+            />
+          </div>
+
+          <div className="process-list">
+            {processes.map((process) => (
+              <div className="process-item" key={process.number}>
+                <span className="process-number">{process.number}</span>
+
+                <div className="process-icon">{process.icon}</div>
+
+                <div>
+                  <h3>{process.title}</h3>
+                  <p>{process.description}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* TRACK ORDER */}
+        <section className="tracking section-container" id="lacak">
+          <div className="tracking-icon">⌕</div>
+
+          <div className="tracking-text">
+            <h3>Sudah punya pesanan?</h3>
+            <p>
+              Masukkan kode atau tautan pelacakan untuk melihat status terbaru.
+            </p>
+          </div>
+
+          <form className="tracking-form" onSubmit={props.onTrack}>
             <label className="sr-only" htmlFor="tracking-link">Kode atau tautan pelacakan</label>
-            <input id="tracking-link" name="tracking-link" required placeholder="Masukkan kode atau tautan dari admin" />
-            <button className="button button-dark" type="submit">Lacak pesanan →</button>
-          </form>
-          {props.trackError && <p className="track-error" role="alert">{props.trackError}</p>}
-        </div>
-      </section>
+            <input
+              id="tracking-link"
+              name="tracking-link"
+              type="text"
+              placeholder="Masukkan kode atau tautan dari admin..."
+              required
+            />
 
-      <footer className="storefront-footer">
-        <a className="brand" href="/" aria-label="JahitLink beranda"><span className="brand-mark">J</span><span>jahit<span className="brand-accent">link</span></span></a>
-        <nav className="storefront-footer-nav" aria-label="Navigasi footer"><a href="/">Beranda</a><a href="#layanan">Layanan</a><a href="#cara-pesan">Tentang kami</a><a href="#lacak">Bantuan</a></nav>
-        <div className="storefront-footer-account"><a href="/pelanggan"><span aria-hidden="true">♟</span> Akun pelanggan</a><a href="/admin">Portal pemilik usaha ↗</a></div>
+            <button type="submit">
+              Lacak Pesanan <span>→</span>
+            </button>
+          </form>
+
+          {props.trackError && <p className="tracking-message" role="alert">{props.trackError}</p>}
+        </section>
+      </main>
+
+      {/* FOOTER */}
+      <footer className="footer section-container">
+        <div className="footer-brand">
+          <a href="/" className="logo">
+            <span className="logo-icon">J</span>
+            <span>Jahitlink</span>
+          </a>
+          <p>Jahit dengan mudah, tampil lebih percaya diri.</p>
+        </div>
+
+        <div className="footer-links">
+          <a href="/">Beranda</a>
+          <a href="#layanan">Layanan</a>
+          <a href="#proses">Tentang Kami</a>
+          <a href="#lacak">Bantuan</a>
+        </div>
+
+        <div className="footer-social">
+          <a href="/pelanggan">Akun pelanggan</a>
+          <a href="/admin">Portal admin/penjahit</a>
+        </div>
+
+        <div className="footer-bottom">
+          <span>© 2026 Jahitlink. Semua hak dilindungi.</span>
+          <span>Menjahit dengan hati, melayani dengan sepenuh hati.</span>
+        </div>
       </footer>
-      <div className="storefront-bottom"><span>© 2026 Jahitlink. Semua hak dilindungi.</span><span>Merawat detail, menjahit cerita.</span><a className="storefront-photo-credit" href="https://commons.wikimedia.org/wiki/File:Antique_Husqvarna_sewing_machine_(44201160084).jpg" target="_blank" rel="noreferrer">Foto: Thomas Quine · CC BY 2.0</a></div>
-    </main>
+
+    </div>
   );
 }
 
@@ -1266,32 +1522,57 @@ function TrackingPage({ order, embedded = false }: { order: TrackingOrder; embed
   const latest = order.progress.at(-1);
   const balance = Math.max(0, order.total - order.paid);
   return (
-    <main className={`tracking-page ${embedded ? "embedded" : ""}`}>
+    <main className={`tracking-page tracking-detail-page ${embedded ? "embedded" : ""}`}>
       {!embedded && <header className="tracking-header"><a className="brand" href="/"><span className="brand-mark">J</span><span>jahit<span className="brand-accent">link</span></span></a><span className="tracking-label">PELACAKAN PESANAN</span></header>}
-      <div className="tracking-content">
-        <div className="tracking-welcome"><div className="tracking-check">✦</div><p className="eyebrow">PESANAN {order.id}</p><h1>Halo, {order.customer}!</h1><p>Pantau proses jahitanmu di sini. Informasi diperbarui oleh penjahit.</p></div>
-        <section className="tracking-status-card">
-          <div><span className="label-small">STATUS TERKINI</span><h2>{latest?.status ?? "Menunggu pengerjaan"}</h2><p>{latest?.note}</p></div>
-          <StatusBadge status={latest?.status ?? "Menunggu pengerjaan"} />
-        </section>
-        <section className="panel tracking-order">
-          <div className="panel-title"><div className="section-icon blue">✦</div><div><h2>Detail pesanan</h2><p>{order.id} · Dipesan {formatDate(order.createdAt)}</p></div></div>
-          <div className="detail-fields"><InfoField label="Pakaian" value={order.garment} /><InfoField label="Jenis layanan" value={order.service} /><InfoField label="Model" value={order.model || "—"} /><InfoField label="Target selesai" value={formatDate(order.dueDate)} /><InfoField label="Jadwal fitting" value={formatDate(order.fittingDate)} /></div>
-        </section>
-        <section className="customer-balance-card">
-          <div className="customer-balance-icon">Rp</div>
-          <div><span>{order.total <= 0 ? "ESTIMASI BIAYA" : "SISA PEMBAYARAN"}</span><strong>{order.total <= 0 ? "Menunggu konfirmasi" : formatCurrency(balance)}</strong><p>{order.total <= 0 ? "Penjahit akan mengonfirmasi biaya setelah meninjau permintaan." : balance === 0 ? "Pesanan sudah lunas." : "Silakan lunasi kepada penjahit saat pembayaran."}</p></div>
-          {order.total > 0 && <span className={`payment-status ${balance === 0 ? "paid" : ""}`}>{balance === 0 ? "Lunas" : "Belum lunas"}</span>}
-        </section>
-        <section className="panel tracking-timeline">
-          <div className="panel-title"><div className="section-icon green">◷</div><div><h2>Perjalanan pesanan</h2><p>Riwayat pembaruan dari penjahit</p></div></div>
-          <div className="timeline">
-            {[...order.progress].reverse().map((entry, index) => (
-              <div className="timeline-entry" key={`${entry.date}-${index}`}><span className={`timeline-dot ${index === 0 ? "current" : ""}`} /><div><div className="timeline-head"><strong>{entry.status}</strong><time>{formatDate(entry.date)}</time></div><p>{entry.note}</p></div></div>
-            ))}
+      <div className="tracking-content tracking-detail-content">
+        <a className="tracking-back-link" href="/pelanggan">← Kembali</a>
+        <div className="tracking-detail-heading">
+          <div>
+            <p className="eyebrow">PESANAN {order.id}</p>
+            <h1>Detail Pesanan</h1>
           </div>
-        </section>
-        <div className="privacy-message">🔒 Tautan ini hanya menampilkan informasi pesanan dan progres. Data kontak dan ukuran badan tidak ditampilkan.</div>
+          <StatusBadge status={latest?.status ?? "Menunggu pengerjaan"} />
+        </div>
+        <div className="tracking-detail-grid">
+          <div className="tracking-detail-main">
+            <section className="panel tracking-order">
+              <div className="tracking-order-overview">
+                <img className="tracking-order-image" src="/garment-dress.svg" alt="" />
+                <div className="tracking-order-info">
+                  <p className="eyebrow">INFORMASI PESANAN</p>
+                  <h2>{order.garment}</h2>
+                  <div><span>Jenis layanan</span><strong>{order.service}</strong></div>
+                  <div><span>Tanggal pesanan</span><strong>{formatDate(order.createdAt)}</strong></div>
+                  <div><span>Estimasi selesai</span><strong>{formatDate(order.dueDate)}</strong></div>
+                  {order.fittingDate && <div><span>Jadwal fitting</span><strong>{formatDate(order.fittingDate)}</strong></div>}
+                </div>
+              </div>
+              {order.model && <div className="tracking-order-model"><span>Model</span><strong>{order.model}</strong></div>}
+            </section>
+            <section className="panel tracking-timeline">
+              <div className="tracking-section-heading">
+                <div className="section-icon green">◷</div>
+                <div><h2>Progres Jahitan</h2><p>Pembaruan dari penjahit</p></div>
+              </div>
+              <div className="timeline">
+                {[...order.progress].reverse().map((entry, index) => (
+                  <div className="timeline-entry" key={`${entry.date}-${index}`}>
+                    <span className={`timeline-dot ${index === 0 ? "current" : ""}`} />
+                    <div><div className="timeline-head"><strong>{entry.status}</strong><time>{formatDate(entry.date)}</time></div><p>{entry.note || "Progres pesanan diperbarui."}</p></div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
+          <aside className="tracking-detail-side">
+            <section className="customer-balance-card">
+              <div className="customer-balance-icon">Rp</div>
+              <div><span>{order.total <= 0 ? "ESTIMASI BIAYA" : "SISA PEMBAYARAN"}</span><strong>{order.total <= 0 ? "Menunggu konfirmasi" : formatCurrency(balance)}</strong><p>{order.total <= 0 ? "Penjahit akan mengonfirmasi biaya setelah meninjau permintaan." : balance === 0 ? "Pesanan sudah lunas." : "Silakan lunasi kepada penjahit saat pembayaran."}</p></div>
+              {order.total > 0 && <span className={`payment-status ${balance === 0 ? "paid" : ""}`}>{balance === 0 ? "Lunas" : "Belum lunas"}</span>}
+            </section>
+            <div className="privacy-message">Informasi kontak dan ukuran badan tidak ditampilkan pada tautan pelacakan ini.</div>
+          </aside>
+        </div>
       </div>
       {!embedded && <footer className="tracking-footer">Dikelola dengan <strong>jahitlink</strong></footer>}
     </main>

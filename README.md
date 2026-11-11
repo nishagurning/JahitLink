@@ -13,10 +13,12 @@ Perintah ini menjalankan Vite dan API secara bersamaan. Buka alamat Vite yang
 ditampilkan di terminal. API tersedia melalui proxy `/api`; database otomatis
 dibuat di `data/jahitlink.sqlite`.
 
-Pada kunjungan pertama ke `/admin`, buat akun admin. Satu akun admin dibuat
-untuk setiap database. Login memakai sesi cookie `HttpOnly` yang berakhir
-setelah delapan jam. Jangan hapus folder `data` kecuali memang ingin mereset
-akun dan seluruh pesanan.
+Pilih jenis akun melalui `/masuk`. Pelanggan dapat masuk atau mendaftar di
+`/pelanggan`; admin dan penjahit menggunakan portal staf di `/admin`. Pada
+kunjungan pertama ke `/admin`, buat akun staf. Satu akun staf dibuat untuk
+setiap database dan digunakan bersama oleh admin/penjahit. Login memakai sesi
+cookie `HttpOnly` yang berakhir setelah delapan jam. Jangan hapus folder `data`
+kecuali memang ingin mereset akun dan seluruh pesanan.
 
 Pelanggan dapat membuka `/pelanggan` untuk mendaftar atau masuk menggunakan
 nomor HP dan kata sandi. Setelah pelanggan membuat akun, admin perlu membuka

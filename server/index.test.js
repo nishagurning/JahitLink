@@ -126,6 +126,9 @@ test("admin setup, protected orders, and private tracking run against SQLite", a
     assert.equal(customerRegistration.response.status, 201);
     const customerCookie = customerRegistration.response.headers.get("set-cookie").split(";")[0];
     assert.equal(customerRegistration.payload.customer.name, "Pelanggan Uji");
+    assert.equal(customerRegistration.payload.customer.phone, "081234567890");
+    const customerStatus = await request("/api/customer/auth/status", { cookie: customerCookie });
+    assert.equal(customerStatus.payload.customer.phone, "081234567890");
     const unlinkedOrders = await request("/api/customer/orders", { cookie: customerCookie });
     assert.deepEqual(unlinkedOrders.payload.orders, []);
     assert.equal((await request("/api/orders", { cookie: customerCookie })).response.status, 401);
@@ -213,6 +216,7 @@ test("admin setup, protected orders, and private tracking run against SQLite", a
     });
     assert.equal(customerLogin.response.status, 200);
     assert.equal(customerLogin.payload.customer.name, "Pelanggan Uji");
+    assert.equal(customerLogin.payload.customer.phone, "081234567890");
   } finally {
     server.kill();
     await once(server, "exit");
