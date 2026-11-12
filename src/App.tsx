@@ -1267,14 +1267,14 @@ function CustomerLanding(props: {
         </a>
 
         <nav className="nav-links">
-          <a href="#">Beranda</a>
-          <a href="#layanan">Layanan</a>
-          <a href="#proses">Cara Pesan</a>
-          <a href="#lacak">Lacak Pesanan</a>
+          <a href="#"><span aria-hidden="true">⌂</span> Beranda</a>
+          <a href="#layanan"><span aria-hidden="true">✂</span> Layanan</a>
+          <a href="#proses"><span aria-hidden="true">☷</span> Cara Pesan</a>
+          <a href="#lacak"><span aria-hidden="true">⌕</span> Lokasi Pesanan</a>
         </nav>
 
         <div className="nav-actions">
-          <a href="/masuk" className="login-btn">Masuk</a>
+          <a href="/masuk" className="login-btn"><span aria-hidden="true">♙</span> Masuk</a>
           <a href="#layanan" className="primary-btn">
             Mulai Pesanan <span>→</span>
           </a>
@@ -1287,13 +1287,6 @@ function CustomerLanding(props: {
           <svg className="hero-stitching" viewBox="0 0 1200 420" preserveAspectRatio="none" aria-hidden="true">
             <path d="M75 26C230 70 284 15 377 12s127 59 213 45M12 346c136-64 176 8 260 40m590-50c98-83 187-37 305-87" />
           </svg>
-          <div className="landing-mannequin" aria-hidden="true">
-            <svg viewBox="0 0 100 180" fill="none">
-              <path d="M44 16c0-6 3-10 7-10s7 4 7 10v12c0 6 6 12 13 16l12 9-10 18-12-7 6 43-7 44H40l-7-44 6-43-12 7-10-18 12-9c7-4 13-10 13-16V16Z" fill="#e4d4b3" stroke="#bca77e" strokeWidth="2" />
-              <path d="M34 59h35M35 105h31M51 28v18m0 0-17 13m17-13 18 13M44 151v17m14-17v17m-22 4h31" stroke="#bca77e" strokeWidth="2" strokeLinecap="round" />
-              <circle cx="51" cy="23" r="2" fill="#9d8055" />
-            </svg>
-          </div>
           <div className="landing-spool" aria-hidden="true"><i /><span /></div>
           <div className="hero-content">
             <div className="eyebrow">
@@ -1397,8 +1390,8 @@ function CustomerLanding(props: {
             </p>
 
             <img
-              src="/process-sewing.svg"
-              alt="Ilustrasi proses menjahit"
+              src="/process-dress.svg"
+              alt="Gaun hijau di manekin jahit"
               className="process-image"
             />
           </div>
@@ -1421,7 +1414,9 @@ function CustomerLanding(props: {
 
         {/* TRACK ORDER */}
         <section className="tracking section-container" id="lacak">
-          <div className="tracking-icon">⌕</div>
+          <div className="tracking-icon" aria-hidden="true">
+            <span className="tracking-search-glass" />
+          </div>
 
           <div className="tracking-text">
             <h3>Sudah punya pesanan?</h3>
