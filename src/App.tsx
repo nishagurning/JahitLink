@@ -1314,13 +1314,7 @@ function CustomerLanding(props: {
                 ▶ &nbsp; Pelajari Proses
               </a>
             </div>
-
-            <div className="hero-features">
-              <span>✓ Ukuran presisi</span>
-              <span>✦ Proses transparan</span>
-              <span>♥ Kualitas terjamin</span>
             </div>
-          </div>
 
           <div className="hero-image">
             <img
