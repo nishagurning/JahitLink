@@ -1088,6 +1088,7 @@ tbody tr:hover { background: #f9fbf9; }
 .website .hero { position: relative; isolation: isolate; min-height: 390px; }
 .website .hero-stitching { position: absolute; z-index: -1; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .website .hero-stitching path { fill: none; stroke: #54b77b; stroke-width: 1.2; stroke-dasharray: 4 7; opacity: .58; }
+
 .website .landing-spool { position: absolute; z-index: 2; top: 17px; right: -5px; width: 36px; height: 43px; display: grid; place-items: center; transform: rotate(28deg); }
 .website .landing-spool::before, .website .landing-spool::after { position: absolute; width: 30px; height: 7px; border: 2px solid #c8a86b; border-radius: 50%; background: #e8d2a4; content: ""; }
 .website .landing-spool::before { top: 2px; }
@@ -1258,4 +1259,87 @@ tbody tr:hover { background: #f9fbf9; }
   .website .tracking-form button { min-width: 82px; padding: 0 7px; border-color: #0c8052; background: #087b50; font-size: 6px; }
   .website .tracking-message { color: #71561b; }
   .website .footer { width: calc(100% - 42px); }
+}
+
+.website {
+  background: #fff;
+  color: #173a2b;
+}
+.website::before, .website::after { display: none; }
+.website .navbar {
+  width: min(1200px,calc(100% - 60px));
+  min-height: 60px;
+  margin-top: 12px;
+  padding: 0 24px;
+  border-color: #e8eeea;
+  border-radius: 12px;
+  box-shadow: 0 3px 14px #1c3b2808;
+}
+.website .logo { color: #173a2b; font-size: 17px; }
+.website .logo-icon { width: 29px; height: 29px; border-radius: 6px; font-size: 15px; }
+.website .nav-links { gap: 16px; border: 0; background: transparent; }
+.website .nav-links a { min-height: 36px; padding: 0 3px; font-size: 11px; }
+.website .nav-links a:first-child, .website .nav-links a:hover { background: transparent; color: #1c7b4e; }
+.website .nav-links a:first-child::after { display: none; }
+.website .nav-actions { gap: 17px; }
+.website .nav-actions .login-btn { min-height: 36px; padding: 0 4px; border: 0; background: transparent; color: #42564a; }
+.website .nav-actions .login-btn svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.6; }
+.website .nav-actions .primary-btn { min-height: 36px; padding: 0 14px; border-radius: 7px; }
+.website .hero {
+  width: min(1200px,calc(100% - 64px));
+  min-height: 268px;
+  padding: 12px 10px 6px 40px;
+  grid-template-columns: .9fr 1.1fr;
+  gap: 28px;
+}
+.website .hero-content { padding: 0; }
+.website .hero .eyebrow { margin-bottom: 12px; padding: 4px 10px 4px 6px; background: #e6f4eb; font-size: 9px; letter-spacing: .3px; }
+.website .eyebrow > span { width: 18px; height: 18px; background: #d3ecdc; color: #248653; }
+.website .hero h1 { font-size: clamp(35px,4vw,46px); line-height: 1.04; letter-spacing: -1.7px; }
+.website .yellow-line { display: none; }
+.website .hero-description { max-width: 360px; margin-top: 14px; color: #5f7167; font-size: 11px; line-height: 1.65; }
+.website .hero-buttons { margin-top: 16px; gap: 9px; }
+.website .nav-actions a, .website .primary-btn, .website .secondary-btn { min-height: 36px; padding: 0 13px; border-radius: 7px; font-size: 10px; }
+.website .hero-btn { min-height: 36px; }
+.website .hero-buttons .secondary-btn { border-color: #a8cbbb; color: #286d4b; }
+.website .hero-buttons .secondary-btn > span { color: #32835a; font-size: 9px; }
+.website .hero-image { width: calc(100% - 10px); height: 250px; justify-self: start; padding: 0; overflow: hidden; border: 0; border-radius: 0; background: transparent; box-shadow: none; transform: none; }
+.website .hero-image img { width: 100%; height: 100%; border-radius: 0; object-fit: cover; object-position: center; }
+.website .services { width: min(1160px,calc(100% - 106px)); margin-top: 0; padding: 15px 19px 19px; border-color: #e8eeea; border-radius: 17px; background: #fff; box-shadow: 0 5px 20px #25433108; }
+.website .services::before { display: none; }
+.website .section-heading { align-items: flex-start; margin-bottom: 12px; }
+.website .section-heading .eyebrow { margin-bottom: 6px; }
+.website .section-heading h2 { color: #183c2c; font-size: clamp(20px,2.4vw,25px); letter-spacing: -.7px; }
+.website .section-heading > p { display: none; }
+.website .service-grid { gap: 13px; }
+.website .service-card { min-height: 74px; padding: 10px 14px; gap: 12px; border-color: #e6ece8; border-radius: 10px; background: #fff; }
+.website .service-card.purple, .website .service-card.orange, .website .service-card.green { border-color: #e6ece8; background: #fff; }
+.website .service-icon, .website .service-card.orange .service-icon, .website .service-card.green .service-icon { width: 44px; height: 44px; background: #eaf5ee; color: #287c51; font-size: 21px; }
+.website .service-icon svg { width: 27px; height: 27px; fill: currentColor; }
+.website .service-icon svg.outline { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.website .service-info h3 { margin-bottom: 4px; color: #273d31; font-size: 11px; }
+.website .service-info p { color: #748078; font-size: 9px; }
+.website .service-arrow { display: none; }
+
+@media (max-width: 760px) {
+  .website .navbar { width: calc(100% - 32px); }
+  .website .nav-links { display: none; }
+  .website .nav-actions .primary-btn { display: none; }
+  .website .hero { width: calc(100% - 36px); min-height: auto; padding: 30px 8px 22px; grid-template-columns: 1fr; gap: 20px; }
+  .website .hero h1 { font-size: clamp(39px,10vw,58px); }
+  .website .hero-image { width: 100%; height: min(60vw,320px); min-height: 205px; }
+  .website .services { width: calc(100% - 36px); margin-top: 2px; padding: 19px 16px 17px; }
+  .website .section-heading { flex-direction: column; gap: 6px; }
+  .website .service-grid { grid-template-columns: 1fr; gap: 8px; }
+  .website .service-card { min-height: 68px; }
+}
+
+@media (max-width: 480px) {
+  .website .navbar { min-height: 56px; margin-top: 7px; }
+  .website .logo { font-size: 15px; }
+  .website .logo-icon { width: 27px; height: 27px; }
+  .website .nav-actions a { min-height: 34px; }
+  .website .hero { padding-top: 25px; }
+  .website .hero h1 { letter-spacing: -2px; }
+  .website .section-heading h2 { font-size: 19px; }
 }

@@ -1212,21 +1212,21 @@ function InfoField({ label, value, wide = false }: { label: string; value: strin
 
 const services = [
   {
-    icon: "🧵",
+    icon: "shirt",
     title: "Jahit pakaian baru",
-    description: "Dari desain hingga model, kami bantu wujudkan pakaian impianmu.",
+    description: "Dari desain hingga model.",
     color: "purple",
   },
   {
-    icon: "👔",
+    icon: "scissors",
     title: "Permak pakaian",
-    description: "Sesuaikan ukuran agar pakaian lebih nyaman dipakai.",
+    description: "Sesuaikan ukuran pakaian.",
     color: "orange",
   },
   {
-    icon: "✂️",
+    icon: "wrench",
     title: "Perbaikan jahitan",
-    description: "Perbaiki pakaian kesayangan agar bisa dipakai kembali.",
+    description: "Perbaiki pakaian kesayangan.",
     color: "green",
   },
 ];
@@ -1263,18 +1263,21 @@ function CustomerLanding(props: {
       <header className="navbar">
         <a href="/" className="logo">
           <span className="logo-icon">J</span>
-          <span>Jahitlink</span>
+          <span>JahitLink</span>
         </a>
 
         <nav className="nav-links">
-          <a href="#"><span aria-hidden="true">⌂</span> Beranda</a>
-          <a href="#layanan"><span aria-hidden="true">✂</span> Layanan</a>
-          <a href="#proses"><span aria-hidden="true">☷</span> Cara Pesan</a>
-          <a href="#lacak"><span aria-hidden="true">⌕</span> Lokasi Pesanan</a>
+          <a href="#">Beranda</a>
+          <a href="#layanan">Layanan</a>
+          <a href="#proses">Cara Pesan</a>
+          <a href="#lacak">Lokasi Pesanan</a>
         </nav>
 
         <div className="nav-actions">
-          <a href="/masuk" className="login-btn"><span aria-hidden="true">♙</span> Masuk</a>
+          <a href="/masuk" className="login-btn">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="5" r="2.5" /><path d="M3.5 14c.25-2.7 1.85-4.1 4.5-4.1s4.25 1.4 4.5 4.1" /></svg>
+            Masuk
+          </a>
           <a href="#layanan" className="primary-btn">
             Mulai Pesanan <span>→</span>
           </a>
@@ -1284,21 +1287,15 @@ function CustomerLanding(props: {
       <main>
         {/* HERO SECTION */}
         <section className="hero">
-          <svg className="hero-stitching" viewBox="0 0 1200 420" preserveAspectRatio="none" aria-hidden="true">
-            <path d="M75 26C230 70 284 15 377 12s127 59 213 45M12 346c136-64 176 8 260 40m590-50c98-83 187-37 305-87" />
-          </svg>
-          <div className="landing-spool" aria-hidden="true"><i /><span /></div>
           <div className="hero-content">
             <div className="eyebrow">
-              <span>✦</span> JAHITAN PERSONAL, HASIL ISTIMEWA
+              <span>+</span> JAHITAN PERSONAL, HASIL ISTIMEWA
             </div>
 
             <h1>
               Jahitan yang pas,
               <span>untuk ceritamu.</span>
             </h1>
-
-            <div className="yellow-line"></div>
 
             <p className="hero-description">
               Wujudkan pakaian sesuai ukuran dan gayamu.
@@ -1307,24 +1304,21 @@ function CustomerLanding(props: {
 
             <div className="hero-buttons">
               <a href="#lacak" className="primary-btn hero-btn">
-                ▣ &nbsp; Lacak Pesanan <span>→</span>
+                Lacak Pesanan <span>→</span>
               </a>
 
               <a href="#proses" className="secondary-btn">
-                ▶ &nbsp; Pelajari Proses
+                <span aria-hidden="true">▶</span> Pelajari Proses
               </a>
             </div>
-            </div>
+          </div>
 
           <div className="hero-image">
             <img
-              src="/hero-sewing-photo.jpg"
-              alt="Mesin jahit profesional"
+              src="/hero-sewing-detail.jpg"
+              alt="Jarum mesin jahit menjahit kain hijau"
             />
-            <div className="image-decoration">✿</div>
           </div>
-          <div className="hero-spark hero-spark-left" aria-hidden="true">✦</div>
-          <div className="hero-spark hero-spark-right" aria-hidden="true">✧</div>
         </section>
 
         {/* SERVICES */}
@@ -1332,17 +1326,10 @@ function CustomerLanding(props: {
           <div className="section-heading">
             <div>
               <div className="eyebrow">
-                <span>✦</span> LAYANAN KAMI
+                <span>+</span> LAYANAN KAMI
               </div>
-              <h2>
-                Dari ide, jadi pakaian favorit. <span className="heart">♡</span>
-              </h2>
+              <h2>Dari ide, jadi pakaian favorit.</h2>
             </div>
-
-            <p>
-              Jahitan dibuat sesuai kebutuhanmu, dengan hasil
-              yang diperhatikan bersama penjahit.
-            </p>
           </div>
 
           <div className="service-grid">
@@ -1352,7 +1339,23 @@ function CustomerLanding(props: {
                 className={`service-card ${service.color}`}
                 key={service.title}
               >
-                <div className="service-icon">{service.icon}</div>
+                <div className="service-icon" aria-hidden="true">
+                  <svg className={service.icon === "scissors" ? "outline" : ""} viewBox="0 0 24 24" aria-hidden="true">
+                    {service.icon === "shirt" && (
+                      <path d="m8 3 4 2 4-2 5 3-2.2 5-2.8-1v11H8V10l-2.8 1L3 6l5-3Z" />
+                    )}
+                    {service.icon === "scissors" && (
+                      <>
+                        <circle cx="6" cy="6" r="2.4" />
+                        <circle cx="6" cy="18" r="2.4" />
+                        <path d="m8 8 12 12M8 16 20 4M12 12l-2 2" />
+                      </>
+                    )}
+                    {service.icon === "wrench" && (
+                      <path d="M21 5.2a6.1 6.1 0 0 1-7.8 7.8l-7.6 7.6a2.1 2.1 0 0 1-3-3l7.6-7.6A6.1 6.1 0 0 1 18 2.2l-4 4 3.8 3.8 3.2-4.8Z" />
+                    )}
+                  </svg>
+                </div>
 
                 <div className="service-info">
                   <h3>{service.title}</h3>
