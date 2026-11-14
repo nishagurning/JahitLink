@@ -1,52 +1,65 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import React, { useEffect, useMemo, useState } from 'react';
 
-type ProgressStatus =
-  | "Menunggu konfirmasi"
-  | "Menunggu pengerjaan"
-  | "Dalam pengerjaan"
-  | "Siap fitting"
-  | "Perlu revisi"
-  | "Siap diambil"
-  | "Selesai";
+type View =
+  | 'landing'
+  | 'portal'
+  | 'auth-customer'
+  | 'auth-admin'
+  | 'customer-dashboard'
+  | 'order-detail'
+  | 'admin-workspace';
 
-type Payment = {
+type OrderStatus =
+  | 'Menunggu konfirmasi'
+  | 'Menunggu pengerjaan'
+  | 'Dalam pengerjaan'
+  | 'Siap fitting'
+  | 'Perlu revisi'
+  | 'Siap diambil'
+  | 'Selesai';
+
+interface CustomerUser {
+  id: number;
+  name: string;
+  phone: string;
+}
+
+interface PaymentItem {
   amount: number;
   method: string;
   date: string;
-};
+}
 
-type ProgressUpdate = {
-  status: ProgressStatus;
+interface ProgressItem {
+  status: OrderStatus;
   note: string;
   date: string;
-};
+}
 
-type Order = {
+interface AdminOrder {
   id: string;
   token: string;
   createdAt: string;
   customer: string;
-  phone: string;
-  address: string;
-  service: string;
+  service: 'Jahit baru' | 'Permak' | 'Perbaikan';
   garment: string;
   model: string;
+  dueDate: string;
+  fittingDate: string;
+  total: number;
+  payments: PaymentItem[];
+  progress: ProgressItem[];
+  customerAccountId: number | null;
+  phone: string;
+  address: string;
   material: string;
   materialAmount: string;
   note: string;
   measurements: Record<string, string>;
-  fittingDate: string;
-  dueDate: string;
-  total: number;
-  payments: Payment[];
-  progress: ProgressUpdate[];
   pickedUpAt: string | null;
-  customerAccountId: number | null;
-};
+}
 
-type CustomerAccount = { id: number; name: string; phone: string };
-type CustomerIdentity = { id: number; name: string; phone?: string };
-type CustomerOrder = {
+interface CustomerOrderSummary {
   id: string;
   token: string;
   createdAt: string;
@@ -55,1524 +68,1736 @@ type CustomerOrder = {
   dueDate: string;
   total: number;
   paid: number;
-  status: ProgressStatus;
-};
-
-type TrackingOrder = Pick<
-  Order,
-  "id" | "createdAt" | "customer" | "service" | "garment" | "model" | "dueDate" | "fittingDate" | "total" | "progress"
-> & { paid: number };
-
-type AuthStatus = {
-  setupRequired: boolean;
-  authenticated: boolean;
-  username: string | null;
-};
-
-class ApiError extends Error {
-  constructor(message: string, readonly status: number) {
-    super(message);
-    this.name = "ApiError";
-  }
+  status: OrderStatus;
 }
 
-const statuses: ProgressStatus[] = [
-  "Menunggu konfirmasi",
-  "Menunggu pengerjaan",
-  "Dalam pengerjaan",
-  "Siap fitting",
-  "Perlu revisi",
-  "Siap diambil",
-  "Selesai",
+interface TrackedOrder {
+  id: string;
+  createdAt: string;
+  customer: string;
+  service: string;
+  garment: string;
+  model: string;
+  dueDate: string;
+  fittingDate: string;
+  total: number;
+  paid: number;
+  progress: ProgressItem[];
+}
+
+const STATUS_TABS: ('Semua' | OrderStatus)[] = [
+  'Semua',
+  'Menunggu konfirmasi',
+  'Menunggu pengerjaan',
+  'Dalam pengerjaan',
+  'Siap fitting',
+  'Perlu revisi',
+  'Siap diambil',
+  'Selesai',
 ];
 
-async function apiRequest<T>(url: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(url, {
-    ...options,
-    credentials: "same-origin",
+const STEPPER_LABELS = [
+  'Pesanan Diterima',
+  'Pengukuran / Menunggu',
+  'Dalam Pengerjaan',
+  'Siap Fitting / Diambil',
+  'Selesai',
+];
+
+const formatRupiah = (amount: number) => `Rp${(amount || 0).toLocaleString('id-ID')}`;
+
+const getInitials = (name: string) =>
+  name
+    .split(' ')
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 2) || 'JL';
+
+const getStatusBadgeClass = (status: string) => {
+  switch (status) {
+    case 'Dalam pengerjaan':
+      return 'badge badge-blue';
+    case 'Siap fitting':
+    case 'Siap diambil':
+    case 'Selesai':
+      return 'badge badge-green';
+    case 'Menunggu konfirmasi':
+    case 'Menunggu pengerjaan':
+      return 'badge badge-amber';
+    case 'Perlu revisi':
+      return 'badge badge-red';
+    default:
+      return 'badge badge-amber';
+  }
+};
+
+const getProgressStepIndex = (status: string) => {
+  switch (status) {
+    case 'Menunggu konfirmasi':
+      return 0;
+    case 'Menunggu pengerjaan':
+      return 1;
+    case 'Dalam pengerjaan':
+    case 'Perlu revisi':
+      return 2;
+    case 'Siap fitting':
+    case 'Siap diambil':
+      return 3;
+    case 'Selesai':
+      return 4;
+    default:
+      return 0;
+  }
+};
+
+const LogoMark = () => (
+  <span className="brand-mark" aria-hidden="true">
+    J
+  </span>
+);
+
+async function apiFetch(url: string, options: RequestInit = {}) {
+  const res = await fetch(url, {
+    credentials: 'include',
     headers: {
-      ...(options.body ? { "Content-Type": "application/json" } : {}),
-      ...options.headers,
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
     },
+    ...options,
   });
-  const payload: unknown = await response.json().catch(() => null);
-  if (!response.ok) {
-    const message = typeof payload === "object" && payload !== null && "error" in payload && typeof payload.error === "string"
-      ? payload.error
-      : `Permintaan gagal (${response.status}).`;
-    throw new ApiError(message, response.status);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || data.message || `Permintaan gagal (${res.status})`);
   }
-  return payload as T;
+  return data;
 }
 
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("id-ID", {
-    style: "currency",
-    currency: "IDR",
-    maximumFractionDigits: 0,
-  }).format(value);
-}
+export default function App() {
+  const [view, setView] = useState<View>('landing');
+  const [previousView, setPreviousView] = useState<View>('landing');
 
-function formatDate(value: string | null): string {
-  if (!value) return "—";
-  return new Intl.DateTimeFormat("id-ID", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  }).format(new Date(`${value}T00:00:00`));
-}
+  // Auth states
+  const [adminSetupRequired, setAdminSetupRequired] = useState(false);
+  const [adminUsername, setAdminUsername] = useState<string | null>(null);
+  const [customerUser, setCustomerUser] = useState<CustomerUser | null>(null);
 
-function getPaid(order: Order): number {
-  return order.payments.reduce((sum, payment) => sum + payment.amount, 0);
-}
+  // Forms Auth
+  const [adminIdentInput, setAdminIdentInput] = useState('admin');
+  const [adminPassInput, setAdminPassInput] = useState('');
+  const [customerTab, setCustomerTab] = useState<'login' | 'register'>('login');
+  const [custNameInput, setCustNameInput] = useState('');
+  const [custPhoneInput, setCustPhoneInput] = useState('');
+  const [custPassInput, setCustPassInput] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
 
-function initialForm() {
-  return {
-    customer: "",
-    phone: "",
-    address: "",
-    service: "Jahit baru",
-    garment: "",
-    model: "",
-    material: "",
-    materialAmount: "",
-    note: "",
-    fittingDate: "",
-    dueDate: "",
-    total: "",
-    deposit: "",
-    paymentMethod: "Tunai",
-    measurements: {
-      "Lingkar badan": "",
-      "Lingkar pinggang": "",
-      "Lebar bahu": "",
-      "Panjang baju": "",
-      "Panjang lengan": "",
-      "Lingkar lengan atas": "",
-    } as Record<string, string>,
+  // Orders Data
+  const [adminOrders, setAdminOrders] = useState<AdminOrder[]>([]);
+  const [customerAccounts, setCustomerAccounts] = useState<CustomerUser[]>([]);
+  const [customerOrders, setCustomerOrders] = useState<CustomerOrderSummary[]>([]);
+  const [selectedOrder, setSelectedOrder] = useState<TrackedOrder | null>(null);
+
+  // Track modal
+  const [showTrackModal, setShowTrackModal] = useState(false);
+  const [trackTokenInput, setTrackTokenInput] = useState('');
+  const [trackError, setTrackError] = useState('');
+
+  // Customer UI
+  const [customerNav, setCustomerNav] = useState<'pesanan' | 'profil' | 'bantuan'>('pesanan');
+
+  // Admin UI
+  const [adminNav, setAdminNav] = useState<'pesanan' | 'buat'>('pesanan');
+  const [statusFilter, setStatusFilter] = useState<'Semua' | OrderStatus>('Semua');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [managingOrder, setManagingOrder] = useState<AdminOrder | null>(null);
+  const [adminFeedback, setAdminFeedback] = useState('');
+
+  // Manage order modal inputs
+  const [nextStatus, setNextStatus] = useState<OrderStatus>('Dalam pengerjaan');
+  const [progressNote, setProgressNote] = useState('');
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState('Tunai');
+  const [linkCustomerId, setLinkCustomerId] = useState<string>('');
+
+  // Create order form
+  const [newOrder, setNewOrder] = useState({
+    customer: '',
+    phone: '',
+    address: '',
+    service: 'Jahit baru' as 'Jahit baru' | 'Permak' | 'Perbaikan',
+    garment: '',
+    model: '',
+    material: '',
+    materialAmount: '',
+    fittingDate: '',
+    dueDate: '',
+    total: '',
+    deposit: '0',
+    paymentMethod: 'Tunai',
+    note: '',
+    measurementsText: '',
+    customerAccountId: '',
+  });
+
+  const refreshAdminData = async () => {
+    const [ordersData, customersData] = await Promise.all([
+      apiFetch('/api/orders'),
+      apiFetch('/api/customer-accounts'),
+    ]);
+    setAdminOrders(ordersData.orders || []);
+    setCustomerAccounts(customersData.customers || []);
   };
-}
 
-function App() {
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [customerAccounts, setCustomerAccounts] = useState<CustomerAccount[]>([]);
-  const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
-  const [startupError, setStartupError] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [showCreate, setShowCreate] = useState(false);
-  const [trackError, setTrackError] = useState("");
-  const [trackingOrder, setTrackingOrder] = useState<TrackingOrder | null>(null);
-  const [trackingLoading, setTrackingLoading] = useState(Boolean(window.location.pathname.match(/^\/track\/([^/]+)\/?$/)?.[1]));
-  const [trackingLoadError, setTrackingLoadError] = useState("");
-  const [query, setQuery] = useState("");
-  const [orderFilter, setOrderFilter] = useState<ProgressStatus | "Semua">("Semua");
-  const [notice, setNotice] = useState("");
-  const [newStatus, setNewStatus] = useState<ProgressStatus>("Dalam pengerjaan");
-  const [progressNote, setProgressNote] = useState("");
-  const [paymentAmount, setPaymentAmount] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("Tunai");
-  const [quoteAmount, setQuoteAmount] = useState("");
+  const refreshCustomerOrders = async () => {
+    const data = await apiFetch('/api/customer/orders');
+    setCustomerOrders(data.orders || []);
+  };
 
-  const trackingToken = window.location.pathname.match(/^\/track\/([^/]+)\/?$/)?.[1];
-  const selectedOrder = orders.find((order) => order.id === selectedId);
-  const isAdminRoute = window.location.pathname === "/admin" || window.location.pathname.startsWith("/admin/");
-
-  useEffect(() => {
-    let active = true;
-    if (trackingToken) {
-      const loadTrackingOrder = async () => {
-        try {
-          const result = await apiRequest<{ order: TrackingOrder }>(`/api/track/${encodeURIComponent(trackingToken)}`);
-          if (active) {
-            setTrackingOrder(result.order);
-            setTrackingLoadError("");
-            setTrackingLoading(false);
-          }
-        } catch (error) {
-          console.error("Gagal memuat pelacakan pesanan.", error);
-          if (active) {
-            setTrackingOrder(null);
-            setTrackingLoadError(error instanceof Error ? error.message : "Pelacakan pesanan gagal dimuat.");
-            setTrackingLoading(false);
-          }
-        }
-      };
-      void loadTrackingOrder();
-      const interval = window.setInterval(() => void loadTrackingOrder(), 15_000);
-      return () => {
-        active = false;
-        window.clearInterval(interval);
-      };
-    }
-
-    if (!isAdminRoute) return () => { active = false; };
-    const loadAuthStatus = async () => {
-      try {
-        const status = await apiRequest<AuthStatus>("/api/auth/status");
-        if (!active) return;
-        setAuthStatus(status);
-        if (status.authenticated) {
-          const [result, accounts] = await Promise.all([
-            apiRequest<{ orders: Order[] }>("/api/orders"),
-            apiRequest<{ customers: CustomerAccount[] }>("/api/customer-accounts"),
-          ]);
-          if (active) {
-            setOrders(result.orders);
-            setCustomerAccounts(accounts.customers);
-          }
-        } else {
-          setOrders([]);
-          setCustomerAccounts([]);
-        }
-        setStartupError("");
-      } catch (error) {
-        console.error("Gagal menghubungi backend JahitLink.", error);
-        if (active) setStartupError("Backend belum dapat dihubungi. Jalankan `npm run dev` untuk memulai aplikasi dan API.");
+  const checkSessions = async () => {
+    try {
+      const [adminStatus, custStatus] = await Promise.all([
+        apiFetch('/api/auth/status'),
+        apiFetch('/api/customer/auth/status'),
+      ]);
+      setAdminSetupRequired(Boolean(adminStatus.setupRequired));
+      if (adminStatus.authenticated) {
+        setAdminUsername(adminStatus.username);
+        await refreshAdminData();
+        setView('admin-workspace');
+        return;
       }
-    };
-    void loadAuthStatus();
-    return () => { active = false; };
-  }, [isAdminRoute, trackingToken]);
-
-  useEffect(() => {
-    if (!isAdminRoute || !authStatus?.authenticated) return;
-    const interval = window.setInterval(() => {
-      void Promise.all([
-        apiRequest<{ orders: Order[] }>("/api/orders"),
-        apiRequest<{ customers: CustomerAccount[] }>("/api/customer-accounts"),
-      ])
-        .then(([result, accounts]) => {
-          setOrders(result.orders);
-          setCustomerAccounts(accounts.customers);
-        })
-        .catch((error: unknown) => {
-          console.error("Gagal memperbarui pesanan.", error);
-          if (error instanceof Error && error.message.includes("Sesi admin")) {
-            setAuthStatus((current) => current ? { ...current, authenticated: false } : current);
-            setOrders([]);
-          }
-        });
-    }, 30_000);
-    return () => window.clearInterval(interval);
-  }, [authStatus?.authenticated, isAdminRoute]);
-
-  useEffect(() => {
-    if (!notice) return;
-    const timeout = window.setTimeout(() => setNotice(""), 3200);
-    return () => window.clearTimeout(timeout);
-  }, [notice]);
-
-  const filteredOrders = useMemo(() => {
-    const normalized = query.trim().toLocaleLowerCase("id");
-    return orders.filter((order) => {
-      const matchesQuery = !normalized
-        || `${order.id} ${order.customer} ${order.garment}`.toLocaleLowerCase("id").includes(normalized);
-      const status = order.progress.at(-1)?.status ?? "Menunggu pengerjaan";
-      return matchesQuery && (orderFilter === "Semua" || status === orderFilter);
-    });
-  }, [orders, orderFilter, query]);
-
-  const openNewOrder = () => setShowCreate(true);
-
-  async function openCustomerTracking(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const formData = new FormData(event.currentTarget);
-    const submitted = String(formData.get("tracking-link") ?? "").trim();
-    const token = submitted.match(/\/track\/([^/?#]+)/)?.[1] ?? submitted;
-    if (!/^[a-f0-9]{64}$/.test(token)) {
-      setTrackError("Masukkan kode atau tautan pelacakan yang diberikan admin.");
-      return;
-    }
-    try {
-      await apiRequest<{ order: TrackingOrder }>(`/api/track/${encodeURIComponent(token)}`);
-      window.location.href = `/track/${token}`;
+      if (custStatus.authenticated && custStatus.customer) {
+        setCustomerUser(custStatus.customer);
+        await refreshCustomerOrders();
+        setView('customer-dashboard');
+      }
     } catch {
-      setTrackError("Pesanan tidak ditemukan. Periksa kembali kode atau tautan pelacakan.");
+      // Server belum menyala atau sesi kosong
     }
-  }
+  };
 
-  async function createOrder(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const formData = new FormData(event.currentTarget);
-    const form = Object.fromEntries(formData.entries());
-    const total = Number(form.total);
-    const deposit = Number(form.deposit || 0);
-    if (!Number.isFinite(total) || total <= 0 || deposit < 0 || deposit > total) {
-      setNotice("Periksa kembali total biaya dan jumlah DP.");
-      return;
-    }
+  useEffect(() => {
+    checkSessions();
+  }, []);
 
-    const measurements: Record<string, string> = {};
-    for (const [label] of Object.entries(initialForm().measurements)) {
-      measurements[label] = String(form[`measurement:${label}`] ?? "");
-    }
-
+  const handleOpenAdminPortal = async () => {
+    setAuthError('');
     try {
-      const result = await apiRequest<{ order: Order }>("/api/orders", {
-        method: "POST",
+      const status = await apiFetch('/api/auth/status');
+      setAdminSetupRequired(Boolean(status.setupRequired));
+      if (status.authenticated) {
+        setAdminUsername(status.username);
+        await refreshAdminData();
+        setView('admin-workspace');
+        return;
+      }
+    } catch {
+      // tetap buka form login
+    }
+    setView('auth-admin');
+  };
+
+  const handleAdminSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError('');
+    setAuthLoading(true);
+    try {
+      const endpoint = adminSetupRequired ? '/api/auth/setup' : '/api/auth/login';
+      const data = await apiFetch(endpoint, {
+        method: 'POST',
         body: JSON.stringify({
-          ...form,
-          total,
-          deposit,
+          username: adminIdentInput.trim(),
+          password: adminPassInput,
+        }),
+      });
+      setAdminSetupRequired(false);
+      setAdminUsername(data.username);
+      await refreshAdminData();
+      setAdminNav('pesanan');
+      setView('admin-workspace');
+    } catch (err) {
+      setAuthError(err instanceof Error ? err.message : 'Login admin gagal.');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleCustomerSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError('');
+    setAuthLoading(true);
+    try {
+      const endpoint =
+        customerTab === 'login'
+          ? '/api/customer/auth/login'
+          : '/api/customer/auth/register';
+      const body =
+        customerTab === 'login'
+          ? { phone: custPhoneInput, password: custPassInput }
+          : { name: custNameInput, phone: custPhoneInput, password: custPassInput };
+
+      const data = await apiFetch(endpoint, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      setCustomerUser(data.customer);
+      await refreshCustomerOrders();
+      setCustomerNav('pesanan');
+      setView('customer-dashboard');
+    } catch (err) {
+      setAuthError(err instanceof Error ? err.message : 'Autentikasi pelanggan gagal.');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogoutAdmin = async () => {
+    await apiFetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+    setAdminUsername(null);
+    setAdminOrders([]);
+    setView('landing');
+  };
+
+  const handleLogoutCustomer = async () => {
+    await apiFetch('/api/customer/auth/logout', { method: 'POST' }).catch(() => {});
+    setCustomerUser(null);
+    setCustomerOrders([]);
+    setView('landing');
+  };
+
+  const handleTrackByToken = async (token: string, fromView: View) => {
+    const cleanToken = token.trim();
+    const data = await apiFetch(`/api/track/${encodeURIComponent(cleanToken)}`);
+    setSelectedOrder(data.order);
+    setPreviousView(fromView);
+    setView('order-detail');
+  };
+
+  const handleSubmitTrackModal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setTrackError('');
+    try {
+      await handleTrackByToken(trackTokenInput, view);
+      setShowTrackModal(false);
+    } catch (err) {
+      setTrackError(
+        err instanceof Error
+          ? err.message
+          : 'Token pelacakan tidak valid atau tidak ditemukan.'
+      );
+    }
+  };
+
+  const handleOpenAdminOrderDetail = (order: AdminOrder) => {
+    const paid = order.payments.reduce((sum, p) => sum + p.amount, 0);
+    setSelectedOrder({
+      id: order.id,
+      createdAt: order.createdAt,
+      customer: order.customer,
+      service: order.service,
+      garment: order.garment,
+      model: order.model,
+      dueDate: order.dueDate,
+      fittingDate: order.fittingDate,
+      total: order.total,
+      paid,
+      progress: order.progress,
+    });
+    setPreviousView('admin-workspace');
+    setView('order-detail');
+  };
+
+  const handleCreateOrder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAdminFeedback('');
+    try {
+      const measurements: Record<string, string> = {};
+      newOrder.measurementsText
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .forEach((pair) => {
+          const [k, ...rest] = pair.split(':');
+          if (k && rest.length) measurements[k.trim()] = rest.join(':').trim();
+        });
+
+      const created = await apiFetch('/api/orders', {
+        method: 'POST',
+        body: JSON.stringify({
+          customer: newOrder.customer,
+          phone: newOrder.phone,
+          address: newOrder.address,
+          service: newOrder.service,
+          garment: newOrder.garment,
+          model: newOrder.model,
+          material: newOrder.material,
+          materialAmount: newOrder.materialAmount,
+          fittingDate: newOrder.fittingDate,
+          dueDate: newOrder.dueDate,
+          total: Number(newOrder.total),
+          deposit: Number(newOrder.deposit || 0),
+          paymentMethod: newOrder.paymentMethod,
+          note: newOrder.note,
           measurements,
         }),
       });
-      setOrders((current) => [result.order, ...current]);
-      setSelectedId(result.order.id);
-      setShowCreate(false);
-      setNotice(`${result.order.id} berhasil dibuat.`);
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Pesanan gagal dibuat.");
-    }
-  }
 
-  function updateProgress(order: Order) {
-    void apiRequest<{ order: Order }>(`/api/orders/${order.id}/progress`, {
-      method: "POST",
-      body: JSON.stringify({ status: newStatus, note: progressNote.trim() }),
-    }).then(({ order: updated }) => {
-      setOrders((current) => current.map((item) => item.id === order.id ? updated : item));
-      setProgressNote("");
-      setNotice("Progres pesanan diperbarui.");
-    }).catch((error: unknown) => setNotice(error instanceof Error ? error.message : "Progres gagal diperbarui."));
-  }
+      if (newOrder.customerAccountId && created.order?.id) {
+        await apiFetch(`/api/orders/${created.order.id}/customer-account`, {
+          method: 'POST',
+          body: JSON.stringify({
+            customerAccountId: Number(newOrder.customerAccountId),
+          }),
+        });
+      }
 
-  function addPayment(order: Order) {
-    const amount = Number(paymentAmount);
-    const balance = order.total - getPaid(order);
-    if (!Number.isFinite(amount) || amount <= 0 || amount > balance) {
-      setNotice(`Masukkan pembayaran antara Rp1 dan ${formatCurrency(balance)}.`);
-      return;
-    }
-    void apiRequest<{ order: Order }>(`/api/orders/${order.id}/payments`, {
-      method: "POST",
-      body: JSON.stringify({ amount, method: paymentMethod }),
-    }).then(({ order: updated }) => {
-      setOrders((current) => current.map((item) => item.id === order.id ? updated : item));
-      setPaymentAmount("");
-      setNotice("Pembayaran berhasil dicatat.");
-    }).catch((error: unknown) => setNotice(error instanceof Error ? error.message : "Pembayaran gagal dicatat."));
-  }
-
-  function setOrderQuote(order: Order) {
-    const total = Number(quoteAmount);
-    if (!Number.isFinite(total) || total <= 0) {
-      setNotice("Masukkan biaya pesanan yang valid.");
-      return;
-    }
-    void apiRequest<{ order: Order }>(`/api/orders/${order.id}/quote`, {
-      method: "POST",
-      body: JSON.stringify({ total }),
-    }).then(({ order: updated }) => {
-      setOrders((current) => current.map((item) => item.id === order.id ? updated : item));
-      setQuoteAmount("");
-      setNotice("Estimasi biaya berhasil disimpan.");
-    }).catch((error: unknown) => setNotice(error instanceof Error ? error.message : "Estimasi biaya gagal disimpan."));
-  }
-
-  function markPickedUp(order: Order) {
-    if (order.pickedUpAt) return;
-    void apiRequest<{ order: Order }>(`/api/orders/${order.id}/pickup`, { method: "POST" })
-      .then(({ order: updated }) => {
-        setOrders((current) => current.map((item) => item.id === order.id ? updated : item));
-        setNotice("Pengambilan pesanan telah dicatat.");
-      })
-      .catch((error: unknown) => setNotice(error instanceof Error ? error.message : "Pengambilan gagal dicatat."));
-  }
-
-  async function copyTrackingLink(order: Order) {
-    const link = `${window.location.origin}/track/${order.token}`;
-    try {
-      await navigator.clipboard.writeText(link);
-      setNotice("Tautan pelacakan disalin.");
-    } catch (error) {
-      console.error("Tidak dapat menyalin tautan pelacakan.", error);
-      setNotice(`Salin tautan ini: ${link}`);
-    }
-  }
-
-  async function handleAdminAuthenticated() {
-    try {
-      const [status, result, accounts] = await Promise.all([
-        apiRequest<AuthStatus>("/api/auth/status"),
-        apiRequest<{ orders: Order[] }>("/api/orders"),
-        apiRequest<{ customers: CustomerAccount[] }>("/api/customer-accounts"),
-      ]);
-      setAuthStatus({ ...status, authenticated: true });
-      setOrders(result.orders);
-      setCustomerAccounts(accounts.customers);
-      setStartupError("");
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Gagal memuat data admin.");
-    }
-  }
-
-  async function assignCustomerAccount(order: Order, customerAccountId: number | null) {
-    try {
-      const result = await apiRequest<{ order: Order }>(`/api/orders/${order.id}/customer-account`, {
-        method: "POST",
-        body: JSON.stringify({ customerAccountId }),
+      setNewOrder({
+        customer: '',
+        phone: '',
+        address: '',
+        service: 'Jahit baru',
+        garment: '',
+        model: '',
+        material: '',
+        materialAmount: '',
+        fittingDate: '',
+        dueDate: '',
+        total: '',
+        deposit: '0',
+        paymentMethod: 'Tunai',
+        note: '',
+        measurementsText: '',
+        customerAccountId: '',
       });
-      setOrders((current) => current.map((item) => item.id === order.id ? result.order : item));
-      setNotice(customerAccountId === null ? "Akun pelanggan diputus dari pesanan." : "Pesanan berhasil ditautkan ke akun pelanggan.");
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Akun pelanggan gagal diperbarui.");
+      await refreshAdminData();
+      setAdminNav('pesanan');
+    } catch (err) {
+      setAdminFeedback(err instanceof Error ? err.message : 'Gagal membuat pesanan.');
     }
-  }
+  };
 
-  async function logoutAdmin() {
+  const openManageModal = (order: AdminOrder) => {
+    setManagingOrder(order);
+    setAdminFeedback('');
+    const currentStatus = order.progress.at(-1)?.status || 'Menunggu pengerjaan';
+    setNextStatus(currentStatus);
+    setProgressNote('');
+    setPaymentAmount('');
+    setPaymentMethod('Tunai');
+    setLinkCustomerId(order.customerAccountId ? String(order.customerAccountId) : '');
+  };
+
+  const handleSaveProgress = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!managingOrder) return;
+    setAdminFeedback('');
     try {
-      await apiRequest("/api/auth/logout", { method: "POST" });
-      setAuthStatus((current) => current ? { ...current, authenticated: false } : current);
-      setOrders([]);
-      setSelectedId(null);
-      setNotice("");
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Gagal keluar dari akun.");
+      const res = await apiFetch(`/api/orders/${managingOrder.id}/progress`, {
+        method: 'POST',
+        body: JSON.stringify({ status: nextStatus, note: progressNote }),
+      });
+      setManagingOrder(res.order);
+      await refreshAdminData();
+      setProgressNote('');
+      setAdminFeedback('Progres jahitan berhasil diperbarui.');
+    } catch (err) {
+      setAdminFeedback(err instanceof Error ? err.message : 'Gagal update progres.');
     }
-  }
+  };
 
-  if (trackingToken) {
-    if (trackingLoading) return <main className="tracking-page"><div className="tracking-content">Memuat informasi pesanan...</div></main>;
-    if (trackingOrder) return <TrackingPage order={trackingOrder} />;
-    if (trackingLoadError && !trackingLoadError.includes("tidak ditemukan")) {
-      return <main className="not-found"><h1>Pelacakan belum tersedia</h1><p>{trackingLoadError}</p><a className="button button-primary" href="/">Kembali</a></main>;
+  const handleAddPayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!managingOrder) return;
+    setAdminFeedback('');
+    try {
+      const res = await apiFetch(`/api/orders/${managingOrder.id}/payments`, {
+        method: 'POST',
+        body: JSON.stringify({
+          amount: Number(paymentAmount),
+          method: paymentMethod,
+        }),
+      });
+      setManagingOrder(res.order);
+      await refreshAdminData();
+      setPaymentAmount('');
+      setAdminFeedback('Pembayaran berhasil dicatat.');
+    } catch (err) {
+      setAdminFeedback(err instanceof Error ? err.message : 'Gagal mencatat pembayaran.');
     }
-    return <NotFoundPage />;
-  }
-  if (window.location.pathname === "/pelanggan" || window.location.pathname.startsWith("/pelanggan/")) {
-    return <CustomerPortal />;
-  }
-  if (window.location.pathname === "/masuk") {
-    return <LoginChoice />;
-  }
-  if (!isAdminRoute) {
-    return <CustomerLanding trackError={trackError} onTrack={openCustomerTracking} />;
-  }
+  };
 
-  if (startupError) {
-    return <main className="admin-access-page"><section className="admin-access-card"><p className="admin-access-error" role="alert">{startupError}</p></section></main>;
-  }
-  if (!authStatus) {
-    return <main className="admin-access-page"><section className="admin-access-card">Menghubungkan ke backend...</section></main>;
-  }
-  if (!authStatus.authenticated) {
-    return <AdminAccess setupRequired={authStatus.setupRequired} onAuthenticated={() => void handleAdminAuthenticated()} />;
-  }
+  const handleLinkCustomer = async () => {
+    if (!managingOrder) return;
+    setAdminFeedback('');
+    try {
+      const res = await apiFetch(`/api/orders/${managingOrder.id}/customer-account`, {
+        method: 'POST',
+        body: JSON.stringify({
+          customerAccountId: linkCustomerId ? Number(linkCustomerId) : null,
+        }),
+      });
+      setManagingOrder(res.order);
+      await refreshAdminData();
+      setAdminFeedback('Tautan akun pelanggan diperbarui.');
+    } catch (err) {
+      setAdminFeedback(err instanceof Error ? err.message : 'Gagal menautkan akun.');
+    }
+  };
 
-  const currentStatus = (order: Order) => order.progress.at(-1)?.status ?? "Menunggu pengerjaan";
+  const handleMarkPickedUp = async () => {
+    if (!managingOrder) return;
+    setAdminFeedback('');
+    try {
+      const res = await apiFetch(`/api/orders/${managingOrder.id}/pickup`, {
+        method: 'POST',
+      });
+      setManagingOrder(res.order);
+      await refreshAdminData();
+      setAdminFeedback('Pesanan ditandai sudah diambil & selesai.');
+    } catch (err) {
+      setAdminFeedback(err instanceof Error ? err.message : 'Gagal menandai selesai.');
+    }
+  };
 
-  return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <a className="brand" href="/admin" aria-label="JahitLink dashboard pemilik">
-          <span className="brand-mark">J</span>
-          <span>jahit<span className="brand-accent">link</span></span>
-        </a>
-        <div className="workspace-label">WORKSPACE</div>
-        <nav className="side-nav" aria-label="Navigasi utama">
-          <button className="nav-item active" type="button" onClick={() => setSelectedId(null)}>
-            <span className="nav-icon">▦</span> Pesanan
-          </button>
-          <button className="nav-item" type="button" onClick={openNewOrder}>
-            <span className="nav-icon">＋</span> Buat pesanan
-          </button>
-        </nav>
-        <div className="sidebar-bottom">
-          <div className="avatar">JL</div>
-          <div><strong>Studio Jahit</strong><small>Pemilik usaha</small></div>
-          <span className="more-icon">···</span>
-        </div>
-      </aside>
+  const filteredAdminOrders = useMemo(() => {
+    return adminOrders.filter((order) => {
+      const currentStatus = order.progress.at(-1)?.status || 'Menunggu pengerjaan';
+      const matchStatus = statusFilter === 'Semua' || currentStatus === statusFilter;
+      const q = searchQuery.toLowerCase();
+      const matchSearch =
+        !q ||
+        order.customer.toLowerCase().includes(q) ||
+        order.id.toLowerCase().includes(q) ||
+        order.garment.toLowerCase().includes(q);
+      return matchStatus && matchSearch;
+    });
+  }, [adminOrders, statusFilter, searchQuery]);
 
-      <main className="main-content">
-        <header className="topbar">
-          <div className="breadcrumb"><a href="/">JahitLink</a> <span>/</span> Ruang kerja</div>
-          <div className="topbar-right"><a href="/" className="customer-site-link">Lihat halaman pelanggan ↗</a><span className="online-dot" /> Database<button className="logout-button" type="button" onClick={() => void logoutAdmin()}>Keluar</button></div>
+  const adminStats = useMemo(() => {
+    const total = adminOrders.length;
+    const inProgress = adminOrders.filter((o) => {
+      const s = o.progress.at(-1)?.status || '';
+      return ['Menunggu pengerjaan', 'Dalam pengerjaan', 'Perlu revisi'].includes(s);
+    }).length;
+    const ready = adminOrders.filter((o) => {
+      const s = o.progress.at(-1)?.status || '';
+      return ['Siap diambil', 'Siap fitting'].includes(s);
+    }).length;
+    const unpaid = adminOrders.filter((o) => {
+      const paid = o.payments.reduce((sum, p) => sum + p.amount, 0);
+      return paid < o.total;
+    }).length;
+    return { total, inProgress, ready, unpaid };
+  }, [adminOrders]);
+
+  // =========================================================
+  // 1. LANDING PAGE
+  // =========================================================
+  if (view === 'landing') {
+    return (
+      <div className="page-wrapper">
+        <header className="top-nav">
+          <div className="container nav-inner">
+            <div className="brand" onClick={() => setView('landing')}>
+              <LogoMark />
+              <span>JahitLink</span>
+            </div>
+            <nav className="nav-links">
+              <a href="#beranda">Beranda</a>
+              <a href="#layanan">Layanan</a>
+              <a href="#cara-pesan">Cara Pesan</a>
+              <a href="#lokasi">Lokasi Pesanan</a>
+            </nav>
+            <div className="nav-actions">
+              <button
+                className="btn-ghost"
+                onClick={() => {
+                  setAuthError('');
+                  setView('portal');
+                }}
+              >
+                Masuk
+              </button>
+              <button
+                className="btn-primary"
+                onClick={() => {
+                  setAuthError('');
+                  setView('portal');
+                }}
+              >
+                Mulai Pesanan →
+              </button>
+            </div>
+          </div>
         </header>
 
-        <div className="page-wrap">
-          {selectedOrder ? (
-            <OrderDetail
-              order={selectedOrder}
-              currentStatus={currentStatus(selectedOrder)}
-              onBack={() => setSelectedId(null)}
-              onCopyLink={() => void copyTrackingLink(selectedOrder)}
-              onProgress={updateProgress}
-              onPayment={addPayment}
-              onQuote={setOrderQuote}
-              onPickup={markPickedUp}
-              customerAccounts={customerAccounts}
-              onAssignCustomerAccount={(customerAccountId) => void assignCustomerAccount(selectedOrder, customerAccountId)}
-              newStatus={newStatus}
-              setNewStatus={setNewStatus}
-              progressNote={progressNote}
-              setProgressNote={setProgressNote}
-              paymentAmount={paymentAmount}
-              setPaymentAmount={setPaymentAmount}
-              paymentMethod={paymentMethod}
-              setPaymentMethod={setPaymentMethod}
-              quoteAmount={quoteAmount}
-              setQuoteAmount={setQuoteAmount}
-            />
-          ) : (
-            <>
-              <div className="page-heading">
-                <div>
-                  <p className="eyebrow">DASHBOARD ADMIN &amp; PENJAHIT</p>
-                  <h1>Ruang kerja</h1>
-                  <p className="muted">Pantau pesanan, progres jahitan, jadwal, dan pembayaran dalam satu tempat.</p>
-                </div>
-                <button className="button button-primary" type="button" onClick={openNewOrder}>
-                  <span className="button-plus">＋</span> Pesanan baru
+        <main className="container">
+          <section id="beranda" className="hero-section">
+            <div className="hero-copy">
+              <span className="eyebrow-pill">+ JAHITAN PERSONAL, HASIL ISTIMEWA</span>
+              <h1>
+                Jahitan yang pas,
+                <br />
+                untuk ceritamu.
+              </h1>
+              <p className="hero-desc">
+                Wujudkan pakaian sesuai ukuran dan gayamu. Pesanan dicatat langsung
+                oleh admin atau penjahit studio.
+              </p>
+              <div className="hero-buttons">
+                <button
+                  className="btn-primary btn-lg"
+                  onClick={() => {
+                    setTrackError('');
+                    setShowTrackModal(true);
+                  }}
+                >
+                  Lacak Pesanan →
                 </button>
+                <a href="#cara-pesan" className="btn-outline btn-lg">
+                  ▶ Pelajari Proses
+                </a>
               </div>
+            </div>
+            <div className="hero-media">
+              <div className="hero-photo-frame">
+                <img
+                src="/mesin jahit.png"
+                alt="Mesin jahit studio JahitLink"
+                />
+                </div>
+            </div>
+          </section>
+          
+          <section id="layanan" className="services-section">
+            <span className="eyebrow-pill">+ LAYANAN KAMI</span>
+            <h2>Dari ide, jadi pakaian favorit.</h2>
+            <div className="services-grid">
+              <div className="service-card">
+                <div className="service-icon">
+                  <img src="jahit pakaian.png" alt="Jahit pakaian baru" />
+                  </div>
+                  <div>
+                    <h3>Jahit pakaian baru</h3>
+                    <p>Dari desain hingga model sesuai ukuran tubuh Anda.</p>
+                    </div>
+                    </div>
+                    
+            <div className="service-card">
+              <div className="service-icon">
+                <img src="permak pakaian.png" alt="Permak pakaian" />
+                </div>
+                <div>
+                  <h3>Permak pakaian</h3>
+                  <p>Sesuaikan ukuran pakaian agar jatuh sempurna.</p>
+                  </div>
+                </div>
+                  
+            <div className="service-card">
+              <div className="service-icon">
+                <img src="perbaiki baju.png" alt="Perbaikan jahitan" />
+                </div>
+                <div>
+                  <h3>Perbaikan jahitan</h3>
+                  <p>Perbaiki pakaian kesayangan dengan rapi dan kuat.</p>
+                  </div>
+                </div>
+            </div>              
+          </section>
 
-              <section className="stats-grid" aria-label="Ringkasan pesanan">
-                <StatCard label="Total pesanan" value={orders.length} icon="▤" tone="blue" />
-                <StatCard
-                  label="Sedang dikerjakan"
-                  value={orders.filter((order) => !["Menunggu konfirmasi", "Siap diambil", "Selesai"].includes(currentStatus(order))).length}
-                  icon="◷"
-                  tone="amber"
+          <section id="cara-pesan" className="process-section">
+            <span className="eyebrow-pill">+ CARA PESAN</span>
+            <h2>Proses jahit transparan & terpantau.</h2>
+            <div className="process-grid">
+              <div className="process-step-card">
+                <span className="step-num">01</span>
+                <h4>Konsultasi & Ukur</h4>
+                <p>Datang ke studio atau kirim detail model & ukuran ke admin.</p>
+              </div>
+              <div className="process-step-card">
+                <span className="step-num">02</span>
+                <h4>Dapat Token Pelacakan</h4>
+                <p>Admin mencatat pesanan dan menautkan ke akun pelanggan Anda.</p>
+              </div>
+              <div className="process-step-card">
+                <span className="step-num">03</span>
+                <h4>Pantau Real-Time</h4>
+                <p>Cek progres dari pemotongan hingga siap fitting & diambil.</p>
+              </div>
+            </div>
+          </section>
+
+          <section id="lokasi" className="location-banner">
+            <div>
+              <h3>Studio JahitLink</h3>
+              <p>Jl. Kemang Raya No. 24, Jakarta Selatan • Buka Senin–Sabtu (09.00 – 18.00 WIB)</p>
+            </div>
+            <button className="btn-primary" onClick={() => setShowTrackModal(true)}>
+              Lacak via Token
+            </button>
+          </section>
+        </main>
+
+        {showTrackModal && (
+          <div className="modal-backdrop" onClick={() => setShowTrackModal(false)}>
+            <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+              <h3>Lacak Progres Pesanan</h3>
+              <p className="muted-text">
+                Masukkan <b>token pelacakan</b> (64 karakter) yang diberikan oleh admin, atau
+                masuk melalui portal Pelanggan untuk melihat seluruh pesanan Anda.
+              </p>
+              <form onSubmit={handleSubmitTrackModal}>
+                <input
+                  className="input-field"
+                  placeholder="Tempel token pelacakan di sini..."
+                  value={trackTokenInput}
+                  onChange={(e) => setTrackTokenInput(e.target.value)}
                 />
-                <StatCard
-                  label="Siap diambil"
-                  value={orders.filter((order) => currentStatus(order) === "Siap diambil").length}
-                  icon="✓"
-                  tone="green"
+                {trackError && <p className="error-text">{trackError}</p>}
+                <div className="modal-actions">
+                  <button
+                    type="button"
+                    className="btn-outline"
+                    onClick={() => setShowTrackModal(false)}
+                  >
+                    Batal
+                  </button>
+                  <button type="submit" className="btn-primary">
+                    Lacak Sekarang
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // =========================================================
+  // 2. PORTAL SELECTION
+  // =========================================================
+  if (view === 'portal') {
+    return (
+      <div className="auth-bg">
+        <div className="portal-card">
+          <div className="brand center-brand">
+            <LogoMark />
+            <span>JahitLink</span>
+          </div>
+          <h1>Masuk ke JahitLink</h1>
+          <p className="muted-text">Pilih portal sesuai akun yang Anda gunakan.</p>
+
+          <div className="portal-options">
+            <button
+              className="portal-option-btn"
+              onClick={() => {
+                setAuthError('');
+                setView('auth-customer');
+              }}
+            >
+              <div className="portal-icon">
+                <img src="/user.png" alt="Portal Pelanggan" />
+              </div>
+              <div className="portal-text">
+                <strong>Pelanggan</strong>
+                <span>Masuk atau buat akun untuk melihat pesanan.</span>
+              </div>
+              <span className="arrow">→</span>
+            </button>
+
+            <button className="portal-option-btn" onClick={handleOpenAdminPortal}>
+              <div className="portal-icon">
+                <img src="/admin.png" alt="Portal Admin atau Penjahit" />
+              </div>
+              <div className="portal-text">
+                <strong>Admin atau penjahit</strong>
+                <span>Kelola pesanan dan progres jahitan.</span>
+              </div>
+              <span className="arrow">→</span>
+            </button>
+          </div>
+
+          <button className="back-link-center" onClick={() => setView('landing')}>
+            ← Kembali ke halaman utama
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // =========================================================
+  // 3. AUTH ADMIN (SETUP PERTAMA / LOGIN)
+  // =========================================================
+  if (view === 'auth-admin') {
+    return (
+      <div className="auth-bg">
+        <div className="auth-card-narrow">
+          <div className="brand center-brand">
+            <LogoMark />
+            <span>JahitLink</span>
+          </div>
+          <span className="eyebrow-pill center-pill">AREA TERBATAS</span>
+          <h2>{adminSetupRequired ? 'Buat akun admin pertama' : 'Masuk ke ruang kerja'}</h2>
+          <p className="muted-text">
+            {adminSetupRequired
+              ? 'Belum ada akun admin di database. Buat akun admin studio sekarang (kata sandi minimal 10 karakter).'
+              : 'Masuk untuk membuat dan mengelola pesanan jahit.'}
+          </p>
+
+          <form onSubmit={handleAdminSubmit} className="auth-form">
+            <div className="input-group">
+              <span className="input-icon">👤</span>
+              <input
+                type="text"
+                placeholder="Nama pengguna atau email"
+                value={adminIdentInput}
+                onChange={(e) => setAdminIdentInput(e.target.value)}
+                required
+              />
+            </div>
+            <div className="input-group">
+              <span className="input-icon">🔒</span>
+              <input
+                type="password"
+                placeholder={
+                  adminSetupRequired ? 'Kata sandi (min. 10 karakter)' : 'Kata sandi'
+                }
+                value={adminPassInput}
+                onChange={(e) => setAdminPassInput(e.target.value)}
+                required
+              />
+            </div>
+            {authError && <p className="error-text">{authError}</p>}
+            <button type="submit" className="btn-primary full-width" disabled={authLoading}>
+              {authLoading
+                ? 'Memproses...'
+                : adminSetupRequired
+                ? 'Buat Akun Admin & Masuk'
+                : 'Masuk'}
+            </button>
+          </form>
+
+          <button className="back-link-center" onClick={() => setView('portal')}>
+            ← Pilih jenis akun
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // =========================================================
+  // 4. AUTH PELANGGAN
+  // =========================================================
+  if (view === 'auth-customer') {
+    return (
+      <div className="auth-bg">
+        <div className="customer-auth-split">
+          <div className="customer-auth-left">
+            <div className="brand center-brand">
+              <LogoMark />
+              <span>JahitLink</span>
+            </div>
+            <span className="eyebrow-pill center-pill">AKUN PELANGGAN</span>
+            <h2>Masuk atau Daftar</h2>
+            <p className="muted-text">Akses pesanan Anda dengan akun pelanggan.</p>
+
+            <div className="auth-tabs">
+              <button
+                type="button"
+                className={customerTab === 'login' ? 'active' : ''}
+                onClick={() => {
+                  setCustomerTab('login');
+                  setAuthError('');
+                }}
+              >
+                Masuk
+              </button>
+              <button
+                type="button"
+                className={customerTab === 'register' ? 'active' : ''}
+                onClick={() => {
+                  setCustomerTab('register');
+                  setAuthError('');
+                }}
+              >
+                Daftar
+              </button>
+            </div>
+
+            <form onSubmit={handleCustomerSubmit} className="auth-form">
+              {customerTab === 'register' && (
+                <div className="input-group">
+                  <span className="input-icon">👤</span>
+                  <input
+                    type="text"
+                    placeholder="Nama lengkap"
+                    value={custNameInput}
+                    onChange={(e) => setCustNameInput(e.target.value)}
+                    required
+                  />
+                </div>
+              )}
+              <div className="input-group">
+                <span className="input-icon">📞</span>
+                <input
+                  type="text"
+                  placeholder="Nomor HP (8–15 digit)"
+                  value={custPhoneInput}
+                  onChange={(e) => setCustPhoneInput(e.target.value)}
+                  required
                 />
-                <StatCard
-                  label="Belum lunas"
-                  value={orders.filter((order) => order.total > 0 && getPaid(order) < order.total).length}
-                  icon="Rp"
-                  tone="purple"
+              </div>
+              <div className="input-group">
+                <span className="input-icon">🔒</span>
+                <input
+                  type="password"
+                  placeholder={
+                    customerTab === 'register'
+                      ? 'Kata sandi (min. 10 karakter)'
+                      : 'Kata sandi'
+                  }
+                  value={custPassInput}
+                  onChange={(e) => setCustPassInput(e.target.value)}
+                  required
+                />
+              </div>
+              {authError && <p className="error-text">{authError}</p>}
+              <button type="submit" className="btn-primary full-width" disabled={authLoading}>
+                {authLoading
+                  ? 'Memproses...'
+                  : customerTab === 'login'
+                  ? 'Masuk'
+                  : 'Daftar Sekarang'}
+              </button>
+            </form>
+
+            <button className="back-link-center" onClick={() => setView('portal')}>
+              ← Pilih jenis akun
+            </button>
+          </div>
+
+         <div className="customer-auth-right">
+          <div className="auth-photo-box">
+            <img src="/gaun.png" alt="Koleksi pakaian JahitLink" />
+            <div className="auth-photo-caption">
+              <span>STUDIO JAHITLINK</span>
+              <p>Jahitan personal dengan ukuran presisi & progres terpantau.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+      );
+    }
+
+  // =========================================================
+  // 5. DETAIL / PELACAKAN PESANAN
+  // =========================================================
+  if (view === 'order-detail' && selectedOrder) {
+    const latestStatus =
+      selectedOrder.progress.at(-1)?.status || 'Menunggu pengerjaan';
+    const currentStepIdx = getProgressStepIndex(latestStatus);
+    const remaining = Math.max(0, selectedOrder.total - selectedOrder.paid);
+    const isPaid = remaining === 0;
+
+    return (
+      <div className="page-wrapper soft-bg">
+        <header className="top-nav">
+          <div className="container nav-inner">
+            <div className="brand" onClick={() => setView(previousView)}>
+              <LogoMark />
+              <span>JahitLink</span>
+            </div>
+            <span className="header-tag">PELACAKAN PESANAN</span>
+          </div>
+        </header>
+
+        <main className="container detail-container">
+          <button className="back-link" onClick={() => setView(previousView)}>
+            ← Kembali
+          </button>
+
+          <div className="detail-header-row">
+            <h1>Detail Pesanan</h1>
+            <span className="order-code">#{selectedOrder.id}</span>
+            <span className={getStatusBadgeClass(latestStatus)}>{latestStatus}</span>
+          </div>
+
+          <div className="detail-top-grid">
+            <div className="card garment-detail-card">
+              <img
+                src="/garment-dress.svg"
+                alt={selectedOrder.garment}
+                className="garment-thumb-lg"
+              />
+              <div className="garment-meta">
+                <h2>{selectedOrder.garment}</h2>
+                <ul>
+                  <li>
+                    <span>Pelanggan</span>
+                    <strong>: {selectedOrder.customer}</strong>
+                  </li>
+                  <li>
+                    <span>Jenis layanan</span>
+                    <strong>: {selectedOrder.service}</strong>
+                  </li>
+                  <li>
+                    <span>Tanggal pesanan</span>
+                    <strong>: {selectedOrder.createdAt}</strong>
+                  </li>
+                  <li>
+                    <span>Estimasi selesai</span>
+                    <strong>: {selectedOrder.dueDate || '-'}</strong>
+                  </li>
+                  {selectedOrder.fittingDate && (
+                    <li>
+                      <span>Jadwal fitting</span>
+                      <strong>: {selectedOrder.fittingDate}</strong>
+                    </li>
+                  )}
+                </ul>
+              </div>
+            </div>
+
+            <div className="card payment-summary-card">
+              <span className="payment-label">Sisa Pembayaran</span>
+              <div className="payment-amount">{formatRupiah(remaining)}</div>
+              <p className="muted-text">
+                {isPaid
+                  ? 'Pembayaran telah lunas. Terima kasih!'
+                  : `Total biaya ${formatRupiah(selectedOrder.total)} • Sudah dibayar ${formatRupiah(
+                      selectedOrder.paid
+                    )}`}
+              </p>
+              <div className={`payment-pill ${isPaid ? 'paid' : 'unpaid'}`}>
+                Rp {isPaid ? 'Lunas' : 'Belum lunas'}
+              </div>
+            </div>
+          </div>
+
+          <div className="card stepper-card">
+            <h3>Progres Jahitan</h3>
+            <div className="stepper-track">
+              {STEPPER_LABELS.map((label, idx) => {
+                const isDone = idx < currentStepIdx || latestStatus === 'Selesai';
+                const isActive = idx === currentStepIdx && latestStatus !== 'Selesai';
+                return (
+                  <div
+                    key={label}
+                    className={`step-item ${isDone ? 'done' : ''} ${
+                      isActive ? 'active' : ''
+                    }`}
+                  >
+                    <div className="step-dot">{isDone ? '✓' : isActive ? '●' : ''}</div>
+                    <span className="step-label">{label}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {selectedOrder.progress.length > 0 && (
+              <div style={{ marginTop: 24, borderTop: '1px solid #e5ece8', paddingTop: 16 }}>
+                <h4 style={{ margin: '0 0 10px' }}>Riwayat Catatan Progres</h4>
+                {selectedOrder.progress.map((item, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      padding: '6px 0',
+                      fontSize: '0.88rem',
+                    }}
+                  >
+                    <span>
+                      <strong>{item.status}</strong> — {item.note}
+                    </span>
+                    <span className="muted-text">{item.date}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  // =========================================================
+  // 6. DASHBOARD PELANGGAN
+  // =========================================================
+  if (view === 'customer-dashboard' && customerUser) {
+    const latestOrder = customerOrders[0];
+
+    return (
+      <div className="page-wrapper soft-bg">
+        <header className="top-nav">
+          <div className="container nav-inner">
+            <div className="brand" onClick={() => setCustomerNav('pesanan')}>
+              <LogoMark />
+              <span>JahitLink</span>
+            </div>
+            <nav className="nav-links">
+              <button className="nav-link-btn" onClick={() => setView('landing')}>
+                Beranda
+              </button>
+              <button
+                className={`nav-link-btn ${customerNav === 'pesanan' ? 'active' : ''}`}
+                onClick={() => setCustomerNav('pesanan')}
+              >
+                Pesanan Saya
+              </button>
+              <button
+                className={`nav-link-btn ${customerNav === 'profil' ? 'active' : ''}`}
+                onClick={() => setCustomerNav('profil')}
+              >
+                Profil Saya
+              </button>
+              <button
+                className={`nav-link-btn ${customerNav === 'bantuan' ? 'active' : ''}`}
+                onClick={() => setCustomerNav('bantuan')}
+              >
+                Bantuan
+              </button>
+            </nav>
+            <div className="nav-actions">
+              <div className="user-pill">
+                <span className="avatar-sm">{getInitials(customerUser.name)}</span>
+                <span>{customerUser.name}</span>
+              </div>
+              <button className="btn-outline btn-sm" onClick={handleLogoutCustomer}>
+                Keluar
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <main className="container customer-main">
+          {customerNav === 'pesanan' && (
+            <>
+              <section className="welcome-banner">
+                <div className="welcome-copy">
+                  <h1>Halo, {customerUser.name}! 👋</h1>
+                  <p>Pantau progres jahitan Anda dengan mudah di JahitLink.</p>
+                  <button
+                    className="btn-primary"
+                    onClick={() => {
+                      if (latestOrder) {
+                        handleTrackByToken(latestOrder.token, 'customer-dashboard');
+                      }
+                    }}
+                  >
+                    Lihat Pesanan Saya →
+                  </button>
+                </div>
+                <img
+                  src="/Banner.png"
+                  alt="Studio JahitLink"
+                  className="welcome-art"
                 />
               </section>
 
-              <section className="panel orders-panel">
-                <div className="panel-heading">
-                  <div><h2>Daftar pekerjaan</h2><p>{filteredOrders.length} dari {orders.length} pesanan</p></div>
-                  <label className="search-box">
-                    <span>⌕</span>
+              <section className="customer-grid">
+                <div className="card">
+                  <div className="card-header-row">
+                    <h3>Pesanan Terbaru Anda</h3>
+                    <span className="muted-text">{customerOrders.length} Pesanan</span>
+                  </div>
+
+                  {customerOrders.length === 0 ? (
+                    <p className="muted-text">
+                      Belum ada pesanan yang ditautkan ke akun Anda. Minta admin studio
+                      menautkan pesanan ke akun Anda ({customerUser.phone}).
+                    </p>
+                  ) : (
+                    <div className="customer-orders-list">
+                      {customerOrders.map((order) => (
+                        <div key={order.id} className="customer-order-row">
+                          <img
+                            src="/garment-dress.svg"
+                            alt={order.garment}
+                            className="order-thumb-sm"
+                          />
+                          <div className="order-row-info">
+                            <div className="order-row-title">
+                              <strong>#{order.id}</strong>
+                              <span className={getStatusBadgeClass(order.status)}>
+                                {order.status}
+                              </span>
+                            </div>
+                            <div className="order-item-name">{order.garment}</div>
+                            <div className="order-eta">
+                              Estimasi selesai: {order.dueDate || '-'}
+                            </div>
+                          </div>
+                          <button
+                            className="btn-outline btn-sm"
+                            onClick={() =>
+                              handleTrackByToken(order.token, 'customer-dashboard')
+                            }
+                          >
+                            Detail →
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="card help-card">
+                  <div className="help-text">
+                    <h3>Butuh Bantuan?</h3>
+                    <p className="muted-text">
+                      Jika ada pertanyaan terkait ukuran atau jadwal fitting, silakan hubungi
+                      studio kami.
+                    </p>
+                    <button
+                      className="btn-outline"
+                      onClick={() => setCustomerNav('bantuan')}
+                    >
+                      Hubungi Kami →
+                    </button>
+                  </div>
+                  <div className="help-icon-circle">🎧</div>
+                </div>
+              </section>
+            </>
+          )}
+
+          {customerNav === 'profil' && (
+            <div className="card">
+              <h2>Profil Saya</h2>
+              <p>
+                <strong>Nama:</strong> {customerUser.name}
+              </p>
+              <p>
+                <strong>Nomor HP:</strong> {customerUser.phone}
+              </p>
+            </div>
+          )}
+
+          {customerNav === 'bantuan' && (
+            <div className="card">
+              <h2>Pusat Bantuan Studio JahitLink</h2>
+              <p className="muted-text">
+                Hubungi admin studio kami melalui WhatsApp atau datang langsung ke studio
+                pada jam kerja Senin–Sabtu (09.00 – 18.00 WIB).
+              </p>
+            </div>
+          )}
+        </main>
+      </div>
+    );
+  }
+
+  // =========================================================
+  // 7. RUANG KERJA ADMIN / PENJAHIT
+  // =========================================================
+  return (
+    <div className="admin-shell">
+      <aside className="admin-sidebar">
+        <div className="sidebar-brand">
+          <LogoMark />
+          <span>JahitLink</span>
+        </div>
+
+        <div className="sidebar-section-label">WORKSPACE</div>
+        <nav className="sidebar-nav">
+          <button
+            className={`sidebar-item ${adminNav === 'pesanan' ? 'active' : ''}`}
+            onClick={() => setAdminNav('pesanan')}
+          >
+            ⊞ Pesanan
+          </button>
+          <button
+            className={`sidebar-item ${adminNav === 'buat' ? 'active' : ''}`}
+            onClick={() => setAdminNav('buat')}
+          >
+            + Buat pesanan
+          </button>
+        </nav>
+
+        <div className="sidebar-footer">
+          <div className="sidebar-avatar">JL</div>
+          <div>
+            <strong>{adminUsername || 'Studio Jahit'}</strong>
+            <span>Pemilik usaha</span>
+          </div>
+        </div>
+      </aside>
+
+      <div className="admin-main">
+        <header className="admin-topbar">
+          <div className="breadcrumb">
+            <span className="muted-text">JahitLink /</span> <strong>Ruang kerja</strong>
+          </div>
+          <div className="admin-topbar-actions">
+            <button className="btn-link" onClick={() => setView('landing')}>
+              Lihat halaman pelanggan ↗
+            </button>
+            <span className="online-pill">● Online</span>
+            <button className="btn-outline btn-sm" onClick={handleLogoutAdmin}>
+              Keluar
+            </button>
+          </div>
+        </header>
+
+        <div className="admin-content">
+          {adminNav === 'pesanan' ? (
+            <>
+              <div className="workspace-header">
+                <div>
+                  <h1>Ruang kerja</h1>
+                  <p className="muted-text">
+                    Pantau pesanan, progres jahitan, jadwal, dan pembayaran.
+                  </p>
+                </div>
+                <button className="btn-primary" onClick={() => setAdminNav('buat')}>
+                  + Pesanan baru
+                </button>
+              </div>
+
+              <div className="stats-grid">
+                <div className="stat-card">
+                  <div className="stat-icon blue">📄</div>
+                  <div>
+                    <span className="stat-label">Total pesanan</span>
+                    <strong className="stat-value">{adminStats.total}</strong>
+                  </div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-icon amber">🕒</div>
+                  <div>
+                    <span className="stat-label">Sedang dikerjakan</span>
+                    <strong className="stat-value">{adminStats.inProgress}</strong>
+                  </div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-icon green">✓</div>
+                  <div>
+                    <span className="stat-label">Siap diambil / fitting</span>
+                    <strong className="stat-value">{adminStats.ready}</strong>
+                  </div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-icon purple">Rp</div>
+                  <div>
+                    <span className="stat-label">Belum lunas</span>
+                    <strong className="stat-value">{adminStats.unpaid}</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div className="card table-card">
+                <div className="table-toolbar">
+                  <div>
+                    <h3>Daftar pekerjaan</h3>
+                    <span className="muted-text">{filteredAdminOrders.length} pesanan</span>
+                  </div>
+                  <div className="search-box">
+                    <span>🔍</span>
                     <input
-                      type="search"
+                      type="text"
                       placeholder="Cari nama atau nomor..."
-                      value={query}
-                      onChange={(event) => setQuery(event.target.value)}
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
                     />
-                  </label>
+                  </div>
                 </div>
-                <div className="order-filters" role="group" aria-label="Filter status pesanan">
-                  {(["Semua", ...statuses] as const).map((status) => {
-                    const count = status === "Semua"
-                      ? orders.length
-                      : orders.filter((order) => (order.progress.at(-1)?.status ?? "Menunggu pengerjaan") === status).length;
-                    return (
-                      <button
-                        key={status}
-                        className={`order-filter${orderFilter === status ? " active" : ""}`}
-                        type="button"
-                        aria-pressed={orderFilter === status}
-                        onClick={() => setOrderFilter(status)}
-                      >
-                        {status}<span>{count}</span>
-                      </button>
-                    );
-                  })}
+
+                <div className="filter-tabs">
+                  {STATUS_TABS.map((tab) => (
+                    <button
+                      key={tab}
+                      className={`filter-tab ${statusFilter === tab ? 'active' : ''}`}
+                      onClick={() => setStatusFilter(tab)}
+                    >
+                      {tab}
+                    </button>
+                  ))}
                 </div>
-                <div className="table-scroll">
-                  <table>
+
+                <div className="table-responsive">
+                  <table className="orders-table">
                     <thead>
-                      <tr><th>PELANGGAN</th><th>PESANAN</th><th>TARGET SELESAI</th><th>PROGRES</th><th>PEMBAYARAN</th><th /></tr>
+                      <tr>
+                        <th>PELANGGAN</th>
+                        <th>PESANAN</th>
+                        <th>TARGET SELESAI</th>
+                        <th>PROGRES</th>
+                        <th>PEMBAYARAN</th>
+                        <th>AKSI</th>
+                      </tr>
                     </thead>
                     <tbody>
-                      {filteredOrders.map((order) => {
-                        const paid = getPaid(order);
+                      {filteredAdminOrders.map((order) => {
+                        const paid = order.payments.reduce((s, p) => s + p.amount, 0);
+                        const isPaid = paid >= order.total;
+                        const currentStatus =
+                          order.progress.at(-1)?.status || 'Menunggu pengerjaan';
+
                         return (
-                          <tr key={order.id} onClick={() => setSelectedId(order.id)} tabIndex={0} onKeyDown={(event) => {
-                            if (event.key === "Enter") setSelectedId(order.id);
-                          }}>
-                            <td><div className="customer-cell"><div className="table-avatar">{order.customer.slice(0, 1).toUpperCase()}</div><div><strong>{order.customer}</strong><small>{order.id}</small></div></div></td>
-                            <td><strong className="table-main">{order.garment}</strong><small>{order.service}</small></td>
-                            <td>{formatDate(order.dueDate)}</td>
-                            <td><StatusBadge status={currentStatus(order)} /></td>
-                            <td><strong className="table-main">{order.total <= 0 ? "Menunggu biaya" : paid >= order.total ? "Lunas" : "Belum lunas"}</strong><small>{order.total <= 0 ? "Estimasi belum ditentukan" : `${formatCurrency(paid)} / ${formatCurrency(order.total)}`}</small></td>
-                            <td><button className="row-arrow" type="button" aria-label={`Buka pesanan ${order.id}`}>↗</button></td>
+                          <tr key={order.id}>
+                            <td>
+                              <div className="cust-cell">
+                                <span className="avatar-sm">
+                                  {getInitials(order.customer)}
+                                </span>
+                                <div>
+                                  <strong>{order.customer}</strong>
+                                  <div className="muted-xs">{order.garment}</div>
+                                </div>
+                              </div>
+                            </td>
+                            <td>
+                              <strong>#{order.id}</strong>
+                            </td>
+                            <td>{order.dueDate || '-'}</td>
+                            <td>
+                              <span className={getStatusBadgeClass(currentStatus)}>
+                                {currentStatus}
+                              </span>
+                            </td>
+                            <td>
+                              <div className="pay-cell">
+                                <strong className={isPaid ? 'text-green' : ''}>
+                                  {isPaid ? 'Lunas' : 'Belum lunas'}
+                                </strong>
+                                <span className="muted-xs">
+                                  {isPaid
+                                    ? formatRupiah(order.total)
+                                    : `${formatRupiah(paid)} / ${formatRupiah(order.total)}`}
+                                </span>
+                              </div>
+                            </td>
+                            <td>
+                              <div className="action-cell">
+                                <button
+                                  className="btn-outline btn-xs"
+                                  onClick={() => openManageModal(order)}
+                                >
+                                  Kelola
+                                </button>
+                                <button
+                                  className="icon-arrow-btn"
+                                  title="Lihat detail"
+                                  onClick={() => handleOpenAdminOrderDetail(order)}
+                                >
+                                  →
+                                </button>
+                              </div>
+                            </td>
                           </tr>
                         );
                       })}
-                      {filteredOrders.length === 0 && (
-                        <tr><td className="empty-table" colSpan={6}>Belum ada pesanan yang cocok.</td></tr>
+                      {filteredAdminOrders.length === 0 && (
+                        <tr>
+                          <td colSpan={6} className="empty-row">
+                            Belum ada pesanan atau tidak ada yang cocok dengan filter.
+                          </td>
+                        </tr>
                       )}
                     </tbody>
                   </table>
                 </div>
-              </section>
-              <p className="prototype-note"><span>ⓘ</span> Data pesanan disimpan di database server.</p>
+              </div>
             </>
-          )}
-        </div>
-      </main>
+          ) : (
+            <div className="card create-order-card">
+              <div className="workspace-header">
+                <div>
+                  <h2>Buat Pesanan Baru</h2>
+                  <p className="muted-text">
+                    Catat detail pelanggan, jenis layanan, ukuran, dan biaya jahitan.
+                  </p>
+                </div>
+                <button className="btn-outline" onClick={() => setAdminNav('pesanan')}>
+                  ← Kembali ke Daftar
+                </button>
+              </div>
 
-      {showCreate && (
-        <CreateOrderModal
-          onClose={() => setShowCreate(false)}
-          onSubmit={createOrder}
-        />
-      )}
-      {notice && <div className="toast" role="status">{notice}</div>}
-    </div>
-  );
-}
+              {adminFeedback && <p className="error-text">{adminFeedback}</p>}
 
-function AdminAccess({ setupRequired, onAuthenticated }: { setupRequired: boolean; onAuthenticated: () => void }) {
-  const isSetup = setupRequired;
-  const [error, setError] = useState("");
+              <form onSubmit={handleCreateOrder} className="create-form-grid">
+                <label>
+                  Nama Pelanggan *
+                  <input
+                    className="input-field"
+                    required
+                    placeholder="Contoh: Rina"
+                    value={newOrder.customer}
+                    onChange={(e) => setNewOrder({ ...newOrder, customer: e.target.value })}
+                  />
+                </label>
+                <label>
+                  Nomor HP Pelanggan
+                  <input
+                    className="input-field"
+                    placeholder="081234567890"
+                    value={newOrder.phone}
+                    onChange={(e) => setNewOrder({ ...newOrder, phone: e.target.value })}
+                  />
+                </label>
+                <label>
+                  Nama Pakaian *
+                  <input
+                    className="input-field"
+                    required
+                    placeholder="Contoh: Kemeja Wanita"
+                    value={newOrder.garment}
+                    onChange={(e) => setNewOrder({ ...newOrder, garment: e.target.value })}
+                  />
+                </label>
+                <label>
+                  Jenis Layanan *
+                  <select
+                    className="input-field"
+                    value={newOrder.service}
+                    onChange={(e) =>
+                      setNewOrder({
+                        ...newOrder,
+                        service: e.target.value as 'Jahit baru' | 'Permak' | 'Perbaikan',
+                      })
+                    }
+                  >
+                    <option value="Jahit baru">Jahit baru</option>
+                    <option value="Permak">Permak</option>
+                    <option value="Perbaikan">Perbaikan</option>
+                  </select>
+                </label>
+                <label>
+                  Jadwal Fitting
+                  <input
+                    type="date"
+                    className="input-field"
+                    value={newOrder.fittingDate}
+                    onChange={(e) =>
+                      setNewOrder({ ...newOrder, fittingDate: e.target.value })
+                    }
+                  />
+                </label>
+                <label>
+                  Target Selesai
+                  <input
+                    type="date"
+                    className="input-field"
+                    value={newOrder.dueDate}
+                    onChange={(e) => setNewOrder({ ...newOrder, dueDate: e.target.value })}
+                  />
+                </label>
+                <label>
+                  Total Biaya (Rp) *
+                  <input
+                    type="number"
+                    min={1}
+                    required
+                    className="input-field"
+                    placeholder="180000"
+                    value={newOrder.total}
+                    onChange={(e) => setNewOrder({ ...newOrder, total: e.target.value })}
+                  />
+                </label>
+                <label>
+                  Uang Muka / DP (Rp)
+                  <input
+                    type="number"
+                    min={0}
+                    className="input-field"
+                    value={newOrder.deposit}
+                    onChange={(e) => setNewOrder({ ...newOrder, deposit: e.target.value })}
+                  />
+                </label>
+                <label>
+                  Tautkan ke Akun Pelanggan (Opsional)
+                  <select
+                    className="input-field"
+                    value={newOrder.customerAccountId}
+                    onChange={(e) =>
+                      setNewOrder({ ...newOrder, customerAccountId: e.target.value })
+                    }
+                  >
+                    <option value="">-- Belum ditautkan --</option>
+                    {customerAccounts.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({c.phone})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Ukuran (format: LD:92, Pinggang:74)
+                  <input
+                    className="input-field"
+                    placeholder="LD: 92cm, Pinggang: 74cm"
+                    value={newOrder.measurementsText}
+                    onChange={(e) =>
+                      setNewOrder({ ...newOrder, measurementsText: e.target.value })
+                    }
+                  />
+                </label>
+                <label className="full-span">
+                  Catatan Model / Bahan
+                  <textarea
+                    className="input-field"
+                    rows={2}
+                    placeholder="Detail model, warna kain, catatan khusus..."
+                    value={newOrder.note}
+                    onChange={(e) => setNewOrder({ ...newOrder, note: e.target.value })}
+                  />
+                </label>
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError("");
-    const form = new FormData(event.currentTarget);
-    const username = String(form.get("username") ?? "").trim();
-    const password = String(form.get("password") ?? "");
-    try {
-      if (isSetup) {
-        const confirmation = String(form.get("confirmPassword") ?? "");
-        if (username.length < 3) {
-          setError("Nama pengguna harus terdiri dari minimal 3 karakter.");
-          return;
-        }
-        if (password.length < 10) {
-          setError("Kata sandi harus terdiri dari minimal 10 karakter.");
-          return;
-        }
-        if (password !== confirmation) {
-          setError("Konfirmasi kata sandi tidak cocok.");
-          return;
-        }
-      }
-      await apiRequest(isSetup ? "/api/auth/setup" : "/api/auth/login", {
-        method: "POST",
-        body: JSON.stringify({ username, password }),
-      });
-      onAuthenticated();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Login tidak dapat diproses.");
-    }
-  }
-
-  return (
-    <main className="admin-access-page">
-      <section className="admin-access-card">
-        <a className="brand" href="/" aria-label="Kembali ke JahitLink">
-          <span className="brand-mark">J</span>
-          <span>jahit<span className="brand-accent">link</span></span>
-        </a>
-        <p className="eyebrow">{isSetup ? "PENGATURAN ADMIN" : "AREA TERBATAS"}</p>
-        <h1>{isSetup ? "Buat akun admin" : "Masuk ke ruang kerja"}</h1>
-        <p className="admin-access-description">
-          {isSetup
-            ? "Buat akun admin pertama untuk mengelola data studio."
-            : "Masuk untuk membuat dan mengelola pesanan jahit."}
-        </p>
-        <form className="admin-access-form" onSubmit={(event) => void submit(event)}>
-          <label>Nama pengguna atau email<input name="username" type="text" required minLength={3} autoComplete="username" placeholder="Contoh: adminjahit atau email@contoh.com" /></label>
-          <label>Kata sandi<input name="password" type="password" required minLength={isSetup ? 10 : 1} autoComplete={isSetup ? "new-password" : "current-password"} /></label>
-          {isSetup && <label>Ulangi kata sandi<input name="confirmPassword" type="password" required minLength={10} autoComplete="new-password" /></label>}
-          {error && <p className="admin-access-error" role="alert">{error}</p>}
-          <button className="button button-primary button-full" type="submit">{isSetup ? "Buat akun dan masuk" : "Masuk"}</button>
-        </form>
-        <p className="admin-access-note">Kredensial diperiksa oleh server. Sesi berakhir otomatis setelah 8 jam.</p>
-        <a className="admin-access-home" href="/masuk">← Pilih jenis akun</a>
-      </section>
-    </main>
-  );
-}
-
-function CustomerPortal() {
-  const [customer, setCustomer] = useState<CustomerIdentity | null>(null);
-  const [orders, setOrders] = useState<CustomerOrder[]>([]);
-  const [isRegister, setIsRegister] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [refreshingOrders, setRefreshingOrders] = useState(false);
-  const [error, setError] = useState("");
-
-  async function loadOrders() {
-    const result = await apiRequest<{ orders: CustomerOrder[] }>("/api/customer/orders");
-    setOrders(result.orders);
-  }
-
-  useEffect(() => {
-    let active = true;
-    async function loadCustomer() {
-      try {
-        const status = await apiRequest<{ authenticated: boolean; customer: CustomerIdentity | null }>("/api/customer/auth/status");
-        if (!active) return;
-        if (status.authenticated && status.customer) {
-          setCustomer(status.customer);
-          const result = await apiRequest<{ orders: CustomerOrder[] }>("/api/customer/orders");
-          if (active) setOrders(result.orders);
-        }
-      } catch (caught) {
-        console.error("Gagal memuat akun pelanggan.", caught);
-        if (active) setError(caught instanceof Error ? caught.message : "Akun pelanggan gagal dimuat.");
-      } finally {
-        if (active) setLoading(false);
-      }
-    }
-    void loadCustomer();
-    return () => { active = false; };
-  }, []);
-
-  useEffect(() => {
-    if (!customer) return;
-    let active = true;
-    const refreshOrders = async () => {
-      try {
-        const result = await apiRequest<{ orders: CustomerOrder[] }>("/api/customer/orders");
-        if (active) setOrders(result.orders);
-      } catch (caught) {
-        console.error("Gagal memperbarui pesanan pelanggan.", caught);
-        if (active) setError(caught instanceof Error ? caught.message : "Pesanan pelanggan gagal diperbarui.");
-      }
-    };
-    const interval = window.setInterval(() => void refreshOrders(), 15_000);
-    return () => {
-      active = false;
-      window.clearInterval(interval);
-    };
-  }, [customer?.id]);
-
-  async function refreshCustomerOrders() {
-    setRefreshingOrders(true);
-    setError("");
-    try {
-      await loadOrders();
-    } catch (caught) {
-      console.error("Gagal memuat ulang pesanan pelanggan.", caught);
-      setError(caught instanceof Error ? caught.message : "Pesanan pelanggan gagal diperbarui.");
-    } finally {
-      setRefreshingOrders(false);
-    }
-  }
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError("");
-    setSubmitting(true);
-    const form = new FormData(event.currentTarget);
-    const phone = String(form.get("phone") ?? "").trim();
-    const password = String(form.get("password") ?? "");
-    try {
-      if (isRegister) {
-        const name = String(form.get("name") ?? "").trim();
-        if (name.length < 2) throw new Error("Nama harus terdiri dari minimal 2 karakter.");
-        if (password.length < 10) throw new Error("Kata sandi harus terdiri dari minimal 10 karakter.");
-        if (password !== String(form.get("confirmPassword") ?? "")) throw new Error("Konfirmasi kata sandi tidak cocok.");
-        const result = await apiRequest<{ customer: CustomerIdentity }>("/api/customer/auth/register", {
-          method: "POST",
-          body: JSON.stringify({ name, phone, password }),
-        });
-        setCustomer(result.customer);
-        await loadOrders();
-      } else {
-        const result = await apiRequest<{ customer: CustomerIdentity }>("/api/customer/auth/login", {
-          method: "POST",
-          body: JSON.stringify({ phone, password }),
-        });
-        setCustomer(result.customer);
-        await loadOrders();
-      }
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Permintaan akun pelanggan gagal.");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  async function logout() {
-    try {
-      await apiRequest("/api/customer/auth/logout", { method: "POST" });
-      setCustomer(null);
-      setOrders([]);
-      setError("");
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Gagal keluar dari akun.");
-    }
-  }
-
-  if (loading) {
-    return <main className="admin-access-page"><section className="admin-access-card">Memuat akun pelanggan...</section></main>;
-  }
-
-  if (customer) {
-    const activeOrders = orders.filter((order) => order.status !== "Selesai").length;
-    const featuredOrder = orders[0];
-    const progressLabels = ["Pesanan Diterima", "Pengukuran Selesai", "Proses Pemotongan", "Proses Penjahitan", "Selesai"];
-    const progressStep = featuredOrder ? getCustomerProgressStep(featuredOrder.status) : 0;
-    const progressPercent = Math.max(0, ((progressStep - 1) / (progressLabels.length - 1)) * 100);
-    return (
-      <main className="customer-account-page" id="customer-home">
-        <header className="customer-account-header">
-          <a className="brand" href="/pelanggan" aria-label="JahitLink beranda"><span className="brand-mark"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M5 8h4v11h13v-3h-5V9h5l4 4v7h2v3H3v-3h2V8Zm5-2h10v2H10V6Zm13 8h3l-3-3v3ZM8 24a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm16 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z"/></svg></span><span>Jahit<span className="brand-accent">Link</span></span></a>
-          <nav className="customer-header-nav" aria-label="Navigasi utama">
-            <a className="active" href="#customer-home">⌂ <span>Beranda</span></a>
-            <a href="#order-history">▣ <span>Pesanan Saya</span></a>
-            <a href="#profile-card">♙ <span>Profil Saya</span></a>
-            <a href="#help-card">ⓘ <span>Bantuan</span></a>
-          </nav>
-          <div className="customer-account-user">
-            <span className="customer-account-avatar">{customer.name.slice(0, 1).toUpperCase()}</span>
-            <span className="customer-account-greeting"><strong>{customer.name}</strong><small>Pelanggan</small></span>
-            <button className="logout-button" type="button" onClick={() => void logout()}>Keluar</button>
-          </div>
-        </header>
-        <section className="customer-account-hero">
-          <div className="customer-account-hero-copy">
-            <p className="eyebrow">BERANDA PELANGGAN</p>
-            <h1>Halo, {customer.name}! <span aria-hidden="true">👋</span></h1>
-            <h2>Pantau progres jahitan Anda dengan mudah di JahitLink</h2>
-            <p>Kami selalu berusaha memberikan hasil terbaik untuk setiap pesanan Anda.</p>
-            <a className="customer-hero-action" href={featuredOrder ? "#order-history" : "/#cara-pesan"}>
-              {featuredOrder ? "Lihat Pesanan Saya" : "Panduan Pemesanan"} <span aria-hidden="true">→</span>
-            </a>
-          </div>
-        </section>
-
-        <div className="customer-home-layout">
-          <div className="customer-home-main">
-            <section className="customer-dashboard-panel customer-feature-panel" id="customer-orders">
-              <div className="customer-dashboard-panel-heading">
-                <h2><span className="customer-panel-icon">▣</span>Pesanan Terbaru Anda</h2>
-                <div className="customer-dashboard-panel-actions">
-                  <a href="#order-history">Lihat Semua Pesanan <span aria-hidden="true">→</span></a>
-                  <button className="customer-orders-refresh" type="button" onClick={() => void refreshCustomerOrders()} disabled={refreshingOrders} aria-label="Muat ulang pesanan">
-                    {refreshingOrders ? "…" : "↻"}
+                <div className="full-span form-submit-row">
+                  <button type="submit" className="btn-primary">
+                    Simpan Pesanan
                   </button>
                 </div>
-              </div>
-              {error && <p className="admin-access-error" role="alert">{error}</p>}
-              {featuredOrder ? (
-                <div className="customer-featured-order">
-                  <img className="customer-featured-image" src="/garment-dress.svg" alt="" />
-                  <div className="customer-featured-info">
-                    <div className="customer-featured-title">
-                      <strong>{featuredOrder.id}</strong>
-                      <StatusBadge status={featuredOrder.status} />
-                    </div>
-                    <p className="customer-featured-label">Jenis Pakaian <span>:</span> <strong>{featuredOrder.garment}</strong></p>
-                    <p className="customer-featured-label">Tanggal Pesanan <span>:</span> <strong>{formatDate(featuredOrder.createdAt)}</strong></p>
-                    <div className="customer-due-highlight"><span>◷</span><div><small>Estimasi Selesai</small><strong>{formatDate(featuredOrder.dueDate)}</strong></div></div>
-                  </div>
-                  <div className="customer-featured-progress">
-                    <h3>Progres Jahitan</h3>
-                    <div className="customer-progress-line">
-                      <span className="customer-progress-track" style={{ background: `linear-gradient(to right, #249461 ${progressPercent}%, #e5ebe7 ${progressPercent}%)` }} />
-                      {progressLabels.map((label, index) => {
-                        const complete = featuredOrder.status === "Selesai" || index < progressStep - 1;
-                        const current = featuredOrder.status !== "Selesai" && index === progressStep - 1;
-                        return (
-                          <span className={`customer-progress-step${complete ? " complete" : ""}${current ? " current" : ""}`} key={label}>
-                            <i>{complete ? "✓" : ""}</i><small>{label}</small>
-                          </span>
-                        );
-                      })}
-                    </div>
-                    <div className="customer-stage-note"><span aria-hidden="true">ⓘ</span><p>Pesanan Anda saat ini dalam tahap <strong>{featuredOrder.status}</strong>.</p><a href={`/track/${encodeURIComponent(featuredOrder.token)}`}>Detail <span aria-hidden="true">→</span></a></div>
-                  </div>
-                </div>
-              ) : (
-                <div className="customer-dashboard-empty">
-                  <span className="customer-empty-art" aria-hidden="true"><span>J</span><i>✦</i></span>
-                  <div><h3>Belum ada pesanan di akun Anda</h3><p>Pesanan akan tampil di sini setelah studio menghubungkannya ke akun Anda.</p></div>
-                </div>
-              )}
-            </section>
-
-            <section className="customer-dashboard-panel customer-history-panel" id="order-history">
-              <div className="customer-dashboard-panel-heading">
-                <h2><span className="customer-panel-icon">◷</span>Riwayat Pesanan</h2>
-                <span className="customer-history-count">{orders.length} pesanan</span>
-              </div>
-              {orders.length > 0 ? (
-                <div className="customer-history-scroll">
-                  <table className="customer-history-table">
-                    <thead><tr><th>No. Pesanan</th><th>Tanggal Pesanan</th><th>Jenis Pakaian</th><th>Status</th><th>Estimasi Selesai</th><th>Aksi</th></tr></thead>
-                    <tbody>
-                      {orders.map((order) => (
-                        <tr key={order.id}>
-                          <td><strong>{order.id}</strong></td>
-                          <td>{formatDate(order.createdAt)}</td>
-                          <td>{order.garment}</td>
-                          <td><StatusBadge status={order.status} /></td>
-                          <td>{formatDate(order.dueDate)}</td>
-                          <td><a className="customer-history-action" href={`/track/${encodeURIComponent(order.token)}`}>◉ Detail</a></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <p className="customer-history-empty">Riwayat pesanan Anda akan muncul di sini.</p>
-              )}
-              {orders.length > 0 && <p className="customer-orders-status">{activeOrders} pesanan masih dalam proses</p>}
-            </section>
-          </div>
-
-          <aside className="customer-home-side">
-            <section className="customer-dashboard-panel customer-help-panel" id="help-card">
-              <div className="customer-side-card-title"><span className="customer-side-icon">♡</span><div><h2>Butuh Bantuan?</h2><p>Jika ada pertanyaan, silakan hubungi studio tempat Anda memesan.</p></div></div>
-              <a className="customer-outline-action" href="/#cara-pesan">Lihat Cara Pemesanan <span aria-hidden="true">→</span></a>
-              <img src="/process-sewing.svg" alt="" />
-            </section>
-            <section className="customer-dashboard-panel customer-profile-panel" id="profile-card">
-              <div className="customer-side-card-title"><span className="customer-side-icon">♙</span><h2>Informasi Akun</h2></div>
-              <dl><div><dt>Nama</dt><dd>{customer.name}</dd></div><div><dt>Nomor HP</dt><dd>{customer.phone || "Tidak tersedia"}</dd></div></dl>
-              <a className="customer-outline-action" href="#profile-card">Profil Saya <span aria-hidden="true">→</span></a>
-            </section>
-          </aside>
-        </div>
-        <footer className="customer-dashboard-footer"><a className="brand" href="/pelanggan"><span className="brand-mark">J</span><span>Jahit<span className="brand-accent">Link</span></span></a><span>Menjahit dengan hati, melayani dengan sepenuh hati.</span><nav><a href="#customer-home">Beranda</a><a href="#order-history">Pesanan Saya</a><a href="#help-card">Bantuan</a></nav></footer>
-      </main>
-    );
-  }
-
-  return (
-    <main className="admin-access-page">
-      <section className="admin-access-card">
-        <a className="brand" href="/" aria-label="Kembali ke JahitLink">
-          <span className="brand-mark">J</span>
-          <span>jahit<span className="brand-accent">link</span></span>
-        </a>
-        <p className="eyebrow">{isRegister ? "AKUN PELANGGAN" : "PORTAL PELANGGAN"}</p>
-        <h1>{isRegister ? "Buat akun pelanggan" : "Masuk ke akun pelanggan"}</h1>
-        <p className="admin-access-description">
-          {isRegister ? "Daftar dengan nomor HP dan kata sandi untuk melihat pesanan yang ditautkan admin." : "Masuk untuk melihat pesanan yang telah ditautkan ke akun Anda."}
-        </p>
-        <form className="admin-access-form" onSubmit={(event) => void submit(event)}>
-          {isRegister && <label>Nama lengkap<input name="name" required minLength={2} autoComplete="name" /></label>}
-          <label>Nomor HP<input name="phone" type="tel" required autoComplete="tel" placeholder="Contoh: 081234567890" /></label>
-          <label>Kata sandi<input name="password" type="password" required minLength={isRegister ? 10 : 1} autoComplete={isRegister ? "new-password" : "current-password"} /></label>
-          {isRegister && <label>Ulangi kata sandi<input name="confirmPassword" type="password" required minLength={10} autoComplete="new-password" /></label>}
-          {error && <p className="admin-access-error" role="alert">{error}</p>}
-          <button className="button button-primary button-full" type="submit" disabled={submitting}>
-            {submitting ? "Memproses..." : isRegister ? "Daftar dan masuk" : "Masuk"}
-          </button>
-        </form>
-        <button className="customer-auth-switch" type="button" onClick={() => { setIsRegister((current) => !current); setError(""); }}>
-          {isRegister ? "Sudah punya akun? Masuk" : "Belum punya akun? Daftar"}
-        </button>
-        <a className="customer-auth-staff-link" href="/admin">Masuk sebagai admin atau penjahit</a>
-        <p className="admin-access-note">Akun baru hanya dapat melihat pesanan setelah admin menautkannya.</p>
-        <a className="admin-access-home" href="/">← Kembali ke halaman utama</a>
-      </section>
-    </main>
-  );
-}
-
-function LoginChoice() {
-  return (
-    <main className="login-choice-page">
-      <section className="login-choice-card">
-        <a className="brand" href="/" aria-label="Kembali ke JahitLink">
-          <span className="brand-mark">J</span>
-          <span>jahit<span className="brand-accent">link</span></span>
-        </a>
-        <p className="eyebrow">SELAMAT DATANG</p>
-        <h1>Masuk ke JahitLink</h1>
-        <p className="login-choice-description">Pilih portal sesuai akun yang Anda gunakan.</p>
-        <div className="login-choice-options">
-          <a className="login-choice-option" href="/pelanggan">
-            <span className="login-choice-icon customer">♙</span>
-            <span><strong>Pelanggan</strong><small>Masuk atau buat akun untuk melihat pesanan Anda.</small></span>
-            <span className="login-choice-arrow" aria-hidden="true">→</span>
-          </a>
-          <a className="login-choice-option" href="/admin">
-            <span className="login-choice-icon staff">✂</span>
-            <span><strong>Admin atau penjahit</strong><small>Kelola pesanan dan progres jahitan studio.</small></span>
-            <span className="login-choice-arrow" aria-hidden="true">→</span>
-          </a>
-        </div>
-        <a className="admin-access-home" href="/">← Kembali ke halaman utama</a>
-      </section>
-    </main>
-  );
-}
-
-function StatCard({ label, value, icon, tone }: { label: string; value: number; icon: string; tone: string }) {
-  return (
-    <div className="stat-card">
-      <div className={`stat-icon ${tone}`}>{icon}</div>
-      <div><p>{label}</p><strong>{value}</strong></div>
-      <span className="stat-spark">↗</span>
-    </div>
-  );
-}
-
-function StatusBadge({ status }: { status: ProgressStatus }) {
-  const tone = status === "Siap diambil" || status === "Selesai"
-    ? "green"
-    : status === "Perlu revisi"
-      ? "rose"
-      : status === "Dalam pengerjaan" || status === "Siap fitting"
-        ? "blue"
-        : "amber";
-  return <span className={`status-badge ${tone}`}><span />{status}</span>;
-}
-
-function getCustomerProgressStep(status: ProgressStatus): number {
-  return {
-    "Menunggu konfirmasi": 1,
-    "Menunggu pengerjaan": 2,
-    "Dalam pengerjaan": 2,
-    "Siap fitting": 3,
-    "Perlu revisi": 3,
-    "Siap diambil": 4,
-    "Selesai": 5,
-  }[status];
-}
-
-function OrderDetail(props: {
-  order: Order;
-  currentStatus: ProgressStatus;
-  onBack: () => void;
-  onCopyLink: () => void;
-  onProgress: (order: Order) => void;
-  onPayment: (order: Order) => void;
-  onQuote: (order: Order) => void;
-  onPickup: (order: Order) => void;
-  customerAccounts: CustomerAccount[];
-  onAssignCustomerAccount: (customerAccountId: number | null) => void;
-  newStatus: ProgressStatus;
-  setNewStatus: (status: ProgressStatus) => void;
-  progressNote: string;
-  setProgressNote: (value: string) => void;
-  paymentAmount: string;
-  setPaymentAmount: (value: string) => void;
-  paymentMethod: string;
-  setPaymentMethod: (value: string) => void;
-  quoteAmount: string;
-  setQuoteAmount: (value: string) => void;
-}) {
-  const { order } = props;
-  const [customerAccountId, setCustomerAccountId] = useState(order.customerAccountId?.toString() ?? "");
-  useEffect(() => {
-    setCustomerAccountId(order.customerAccountId?.toString() ?? "");
-  }, [order.id, order.customerAccountId]);
-  const paid = getPaid(order);
-  const balance = Math.max(0, order.total - paid);
-  return (
-    <div className="detail-page">
-      <button className="back-link" type="button" onClick={props.onBack}>← Kembali ke pesanan</button>
-      <div className="detail-heading">
-        <div>
-          <p className="eyebrow">{order.id} <span>·</span> Masuk {formatDate(order.createdAt)}</p>
-          <h1>{order.customer}</h1>
-          <p className="muted">{order.garment} <span className="dot-separator">·</span> {order.service}</p>
-        </div>
-        <div className="heading-actions">
-          <StatusBadge status={props.currentStatus} />
-          <button className="button button-secondary" type="button" onClick={props.onCopyLink}>↗ Salin tautan</button>
+              </form>
+            </div>
+          )}
         </div>
       </div>
 
-      <div className="detail-grid">
-        <div className="detail-main-column">
-          <section className="panel">
-            <div className="panel-title"><div className="section-icon blue">✦</div><div><h2>Detail pesanan</h2><p>Informasi jahitan dan bahan</p></div></div>
-            <div className="detail-fields">
-              <InfoField label="Jenis layanan" value={order.service} />
-              <InfoField label="Pakaian" value={order.garment} />
-              <InfoField label="Model" value={order.model || "—"} />
-              <InfoField label="Bahan" value={order.material || "—"} />
-              <InfoField label="Jumlah bahan" value={order.materialAmount || "—"} />
-              <InfoField label="Catatan" value={order.note || "—"} wide />
-            </div>
-          </section>
-
-          <section className="panel">
-            <div className="panel-title"><div className="section-icon purple">⌁</div><div><h2>Ukuran badan</h2><p>Dalam sentimeter</p></div></div>
-            <div className="measurement-grid">
-              {Object.entries(order.measurements).map(([label, value]) => (
-                <InfoField key={label} label={label} value={value ? `${value} cm` : "—"} />
-              ))}
-            </div>
-          </section>
-
-          <section className="panel">
-            <div className="panel-title"><div className="section-icon green">◷</div><div><h2>Riwayat progres</h2><p>Pembaruan yang dapat dilihat pelanggan</p></div></div>
-            <div className="timeline">
-              {[...order.progress].reverse().map((entry, index) => (
-                <div className="timeline-entry" key={`${entry.date}-${index}`}>
-                  <span className={`timeline-dot ${index === 0 ? "current" : ""}`} />
-                  <div><div className="timeline-head"><strong>{entry.status}</strong><time>{formatDate(entry.date)}</time></div><p>{entry.note}</p></div>
-                </div>
-              ))}
-            </div>
-            <div className="update-form">
-              <h3>Perbarui progres</h3>
-              <div className="inline-form">
-                <select value={props.newStatus} onChange={(event) => props.setNewStatus(event.target.value as ProgressStatus)} aria-label="Status progres baru">
-                  {statuses.map((status) => <option key={status}>{status}</option>)}
-                </select>
-                <button className="button button-primary" type="button" onClick={() => props.onProgress(order)}>Simpan progres</button>
-              </div>
-              <input value={props.progressNote} onChange={(event) => props.setProgressNote(event.target.value)} placeholder="Catatan untuk pelanggan (opsional)" />
-            </div>
-          </section>
-        </div>
-
-        <aside className="detail-side-column">
-          <section className="panel">
-            <div className="panel-title"><div className="section-icon amber">▣</div><div><h2>Jadwal</h2><p>Tanggal penting pesanan</p></div></div>
-            <InfoField label="Fitting" value={formatDate(order.fittingDate)} />
-            <InfoField label="Target siap diambil" value={formatDate(order.dueDate)} />
-          </section>
-
-          <section className="panel">
-            <div className="panel-title"><div className="section-icon green">Rp</div><div><h2>Biaya & pembayaran</h2><p>{order.total <= 0 ? "Estimasi biaya belum ditentukan" : balance === 0 ? "Pembayaran lunas" : "Masih ada sisa pembayaran"}</p></div></div>
-            {order.total <= 0 ? (
-              <div className="payment-entry quote-entry">
-                <label htmlFor="quote-amount">Tentukan estimasi biaya (Rp)</label>
-                <div className="money-input"><span>Rp</span><input id="quote-amount" type="number" min="1" value={props.quoteAmount} onChange={(event) => props.setQuoteAmount(event.target.value)} placeholder="Contoh: 180000" /></div>
-                <button className="button button-primary button-full" type="button" onClick={() => props.onQuote(order)}>Simpan estimasi biaya</button>
-              </div>
-            ) : (
-              <>
-                <div className="payment-summary">
-                  <div><span>Total biaya</span><strong>{formatCurrency(order.total)}</strong></div>
-                  <div><span>Sudah dibayar</span><strong className="paid-value">{formatCurrency(paid)}</strong></div>
-                  <div className="balance-row"><span>Sisa</span><strong>{formatCurrency(balance)}</strong></div>
-                </div>
-                {order.payments.length > 0 && (
-                  <div className="payment-history">
-                    {order.payments.map((payment, index) => (
-                      <div key={`${payment.date}-${index}`}><span>{payment.method} · {formatDate(payment.date)}</span><strong>{formatCurrency(payment.amount)}</strong></div>
-                    ))}
-                  </div>
-                )}
-                {balance > 0 && (
-                  <div className="payment-entry">
-                    <label htmlFor="payment-amount">Catat pembayaran</label>
-                    <div className="money-input"><span>Rp</span><input id="payment-amount" type="number" min="1" max={balance} value={props.paymentAmount} onChange={(event) => props.setPaymentAmount(event.target.value)} placeholder="Jumlah pembayaran" /></div>
-                    <div className="inline-form">
-                      <select value={props.paymentMethod} onChange={(event) => props.setPaymentMethod(event.target.value)} aria-label="Metode pembayaran">
-                        <option>Tunai</option><option>Transfer bank</option><option>QRIS</option>
-                      </select>
-                      <button className="button button-dark" type="button" onClick={() => props.onPayment(order)}>Catat</button>
-                    </div>
-                  </div>
-                )}
-              </>
+      {/* Modal Kelola Pesanan */}
+      {managingOrder && (
+        <div className="modal-backdrop" onClick={() => setManagingOrder(null)}>
+          <div
+            className="modal-card"
+            style={{ maxWidth: 540, maxHeight: '90vh', overflowY: 'auto' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3>
+              Kelola #{managingOrder.id} — {managingOrder.customer}
+            </h3>
+            <p className="muted-xs" style={{ wordBreak: 'break-all' }}>
+              Token Pelacakan: <code>{managingOrder.token}</code>
+            </p>
+            {adminFeedback && (
+              <p style={{ color: '#144d3b', fontWeight: 600, fontSize: '0.86rem' }}>
+                {adminFeedback}
+              </p>
             )}
-          </section>
 
-          <section className="panel customer-panel">
-            <div className="panel-title"><div className="section-icon blue">♙</div><div><h2>Pelanggan</h2><p>Informasi kontak internal</p></div></div>
-            <InfoField label="Nama" value={order.customer} />
-            <InfoField label="WhatsApp" value={order.phone || "—"} />
-            <InfoField label="Alamat" value={order.address || "—"} />
-            <div className="customer-account-link">
-              <label htmlFor="customer-account">Akun pelanggan</label>
-              <select id="customer-account" value={customerAccountId} onChange={(event) => setCustomerAccountId(event.target.value)} aria-label="Akun pelanggan untuk pesanan ini">
-                <option value="">Belum ditautkan</option>
-                {props.customerAccounts.map((account) => (
-                  <option key={account.id} value={account.id}>{account.name} · {account.phone}</option>
-                ))}
-              </select>
+            <form onSubmit={handleSaveProgress} className="modal-form">
+              <label>
+                Update Status Pekerjaan
+                <select
+                  className="input-field"
+                  value={nextStatus}
+                  onChange={(e) => setNextStatus(e.target.value as OrderStatus)}
+                >
+                  {STATUS_TABS.filter((t) => t !== 'Semua').map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Catatan Progres
+                <input
+                  className="input-field"
+                  placeholder="Contoh: Kain sedang dipotong sesuai pola"
+                  value={progressNote}
+                  onChange={(e) => setProgressNote(e.target.value)}
+                />
+              </label>
+              <button type="submit" className="btn-primary btn-sm">
+                Simpan Progres
+              </button>
+            </form>
+
+            <hr style={{ margin: '16px 0', borderColor: '#e5ece8' }} />
+
+            <form onSubmit={handleAddPayment} className="modal-form">
+              <label>
+                Catat Pembayaran Baru (Sisa:{' '}
+                {formatRupiah(
+                  Math.max(
+                    0,
+                    managingOrder.total -
+                      managingOrder.payments.reduce((s, p) => s + p.amount, 0)
+                  )
+                )}
+                )
+                <input
+                  type="number"
+                  min={1}
+                  className="input-field"
+                  placeholder="Nominal Rp..."
+                  value={paymentAmount}
+                  onChange={(e) => setPaymentAmount(e.target.value)}
+                  required
+                />
+              </label>
+              <label>
+                Metode Pembayaran
+                <select
+                  className="input-field"
+                  value={paymentMethod}
+                  onChange={(e) => setPaymentMethod(e.target.value)}
+                >
+                  <option value="Tunai">Tunai</option>
+                  <option value="Transfer">Transfer</option>
+                  <option value="QRIS">QRIS</option>
+                </select>
+              </label>
+              <button type="submit" className="btn-outline btn-sm">
+                + Tambah Pembayaran
+              </button>
+            </form>
+
+            <hr style={{ margin: '16px 0', borderColor: '#e5ece8' }} />
+
+            <div className="modal-form">
+              <label>
+                Tautkan ke Akun Pelanggan
+                <select
+                  className="input-field"
+                  value={linkCustomerId}
+                  onChange={(e) => setLinkCustomerId(e.target.value)}
+                >
+                  <option value="">-- Tidak ditautkan --</option>
+                  {customerAccounts.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} ({c.phone})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'space-between' }}>
+                <button
+                  type="button"
+                  className="btn-outline btn-sm"
+                  onClick={handleLinkCustomer}
+                >
+                  Simpan Tautan Akun
+                </button>
+                {!managingOrder.pickedUpAt && (
+                  <button
+                    type="button"
+                    className="btn-primary btn-sm"
+                    onClick={handleMarkPickedUp}
+                  >
+                    Tandai Sudah Diambil
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="modal-actions">
               <button
-                className="button button-secondary button-full"
                 type="button"
-                disabled={customerAccountId === (order.customerAccountId?.toString() ?? "")}
-                onClick={() => props.onAssignCustomerAccount(customerAccountId ? Number(customerAccountId) : null)}
+                className="btn-outline"
+                onClick={() => setManagingOrder(null)}
               >
-                Simpan tautan akun
+                Tutup
               </button>
             </div>
-          </section>
-
-          <section className="pickup-card">
-            <div className="pickup-top"><span className="pickup-icon">✓</span><div><strong>Pengambilan</strong><p>{order.pickedUpAt ? `Diambil ${formatDate(order.pickedUpAt)}` : "Belum diambil pelanggan"}</p></div></div>
-            {!order.pickedUpAt && (
-              <button className="button button-primary button-full" type="button" onClick={() => props.onPickup(order)}>Catat pengambilan</button>
-            )}
-          </section>
-        </aside>
-      </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-
-function InfoField({ label, value, wide = false }: { label: string; value: string; wide?: boolean }) {
-  return <div className={`info-field ${wide ? "wide" : ""}`}><span>{label}</span><strong>{value}</strong></div>;
-}
-
-
-const services = [
-  {
-    icon: "shirt",
-    title: "Jahit pakaian baru",
-    description: "Dari desain hingga model.",
-    color: "purple",
-  },
-  {
-    icon: "scissors",
-    title: "Permak pakaian",
-    description: "Sesuaikan ukuran pakaian.",
-    color: "orange",
-  },
-  {
-    icon: "wrench",
-    title: "Perbaikan jahitan",
-    description: "Perbaiki pakaian kesayangan.",
-    color: "green",
-  },
-];
-
-const processes = [
-  {
-    number: "01",
-    icon: "☏",
-    title: "Konsultasi di studio",
-    description: "Diskusikan jenis pakaian, model, dan kebutuhan dengan penjahit.",
-  },
-  {
-    number: "02",
-    icon: "✓",
-    title: "Pesanan dicatat admin",
-    description: "Admin mencatat detail ukuran, bahan, dan jadwal pesanan.",
-  },
-  {
-    number: "03",
-    icon: "♧",
-    title: "Pakaian sampai selesai",
-    description: "Lihat progres jahitan dan dapatkan kabar melalui tautan khusus.",
-  },
-];
-
-function CustomerLanding(props: {
-  trackError: string;
-  onTrack: (event: FormEvent<HTMLFormElement>) => void;
-}) {
-  return (
-    <div className="website">
-
-      {/* NAVBAR */}
-      <header className="navbar">
-        <a href="/" className="logo">
-          <span className="logo-icon">J</span>
-          <span>JahitLink</span>
-        </a>
-
-        <nav className="nav-links">
-          <a href="#">Beranda</a>
-          <a href="#layanan">Layanan</a>
-          <a href="#proses">Cara Pesan</a>
-          <a href="#lacak">Lokasi Pesanan</a>
-        </nav>
-
-        <div className="nav-actions">
-          <a href="/masuk" className="login-btn">
-            <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="5" r="2.5" /><path d="M3.5 14c.25-2.7 1.85-4.1 4.5-4.1s4.25 1.4 4.5 4.1" /></svg>
-            Masuk
-          </a>
-          <a href="#layanan" className="primary-btn">
-            Mulai Pesanan <span>→</span>
-          </a>
-        </div>
-      </header>
-
-      <main>
-        {/* HERO SECTION */}
-        <section className="hero">
-          <div className="hero-content">
-            <div className="eyebrow">
-              <span>+</span> JAHITAN PERSONAL, HASIL ISTIMEWA
-            </div>
-
-            <h1>
-              Jahitan yang pas,
-              <span>untuk ceritamu.</span>
-            </h1>
-
-            <p className="hero-description">
-              Wujudkan pakaian sesuai ukuran dan gayamu.
-              Pesanan dicatat langsung oleh admin atau penjahit studio.
-            </p>
-
-            <div className="hero-buttons">
-              <a href="#lacak" className="primary-btn hero-btn">
-                Lacak Pesanan <span>→</span>
-              </a>
-
-              <a href="#proses" className="secondary-btn">
-                <span aria-hidden="true">▶</span> Pelajari Proses
-              </a>
-            </div>
-          </div>
-
-          <div className="hero-image">
-            <img
-              src="/hero-sewing-detail.jpg"
-              alt="Jarum mesin jahit menjahit kain hijau"
-            />
-          </div>
-        </section>
-
-        {/* SERVICES */}
-        <section className="services section-container" id="layanan">
-          <div className="section-heading">
-            <div>
-              <div className="eyebrow">
-                <span>+</span> LAYANAN KAMI
-              </div>
-              <h2>Dari ide, jadi pakaian favorit.</h2>
-            </div>
-          </div>
-
-          <div className="service-grid">
-            {services.map((service) => (
-              <a
-                href="#lacak"
-                className={`service-card ${service.color}`}
-                key={service.title}
-              >
-                <div className="service-icon" aria-hidden="true">
-                  <svg className={service.icon === "scissors" ? "outline" : ""} viewBox="0 0 24 24" aria-hidden="true">
-                    {service.icon === "shirt" && (
-                      <path d="m8 3 4 2 4-2 5 3-2.2 5-2.8-1v11H8V10l-2.8 1L3 6l5-3Z" />
-                    )}
-                    {service.icon === "scissors" && (
-                      <>
-                        <circle cx="6" cy="6" r="2.4" />
-                        <circle cx="6" cy="18" r="2.4" />
-                        <path d="m8 8 12 12M8 16 20 4M12 12l-2 2" />
-                      </>
-                    )}
-                    {service.icon === "wrench" && (
-                      <path d="M21 5.2a6.1 6.1 0 0 1-7.8 7.8l-7.6 7.6a2.1 2.1 0 0 1-3-3l7.6-7.6A6.1 6.1 0 0 1 18 2.2l-4 4 3.8 3.8 3.2-4.8Z" />
-                    )}
-                  </svg>
-                </div>
-
-                <div className="service-info">
-                  <h3>{service.title}</h3>
-                  <p>{service.description}</p>
-                </div>
-
-                <div className="service-arrow">→</div>
-              </a>
-            ))}
-          </div>
-        </section>
-
-        {/* PROCESS */}
-        <section className="process section-container" id="proses">
-          <div className="process-left">
-            <div className="eyebrow">
-              <span>✦</span> MUDAH DAN JELAS
-            </div>
-
-            <h2>
-              Pesan, pantau,
-              <br />
-              lalu <span>kenakan.</span>
-            </h2>
-
-            <p>
-              Jahitlink membantu proses pemesanan pakaian menjadi
-              lebih mudah, mulai dari konsultasi hingga pakaian selesai.
-            </p>
-
-            <img
-              src="/process-dress.svg"
-              alt="Gaun hijau di manekin jahit"
-              className="process-image"
-            />
-          </div>
-
-          <div className="process-list">
-            {processes.map((process) => (
-              <div className="process-item" key={process.number}>
-                <span className="process-number">{process.number}</span>
-
-                <div className="process-icon">{process.icon}</div>
-
-                <div>
-                  <h3>{process.title}</h3>
-                  <p>{process.description}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* TRACK ORDER */}
-        <section className="tracking section-container" id="lacak">
-          <div className="tracking-icon" aria-hidden="true">
-            <span className="tracking-search-glass" />
-          </div>
-
-          <div className="tracking-text">
-            <h3>Sudah punya pesanan?</h3>
-            <p>
-              Masukkan kode atau tautan pelacakan untuk melihat status terbaru.
-            </p>
-          </div>
-
-          <form className="tracking-form" onSubmit={props.onTrack}>
-            <label className="sr-only" htmlFor="tracking-link">Kode atau tautan pelacakan</label>
-            <input
-              id="tracking-link"
-              name="tracking-link"
-              type="text"
-              placeholder="Masukkan kode atau tautan dari admin..."
-              required
-            />
-
-            <button type="submit">
-              Lacak Pesanan <span>→</span>
-            </button>
-          </form>
-
-          {props.trackError && <p className="tracking-message" role="alert">{props.trackError}</p>}
-        </section>
-      </main>
-
-      {/* FOOTER */}
-      <footer className="footer section-container">
-        <div className="footer-brand">
-          <a href="/" className="logo">
-            <span className="logo-icon">J</span>
-            <span>Jahitlink</span>
-          </a>
-          <p>Jahit dengan mudah, tampil lebih percaya diri.</p>
-        </div>
-
-        <div className="footer-links">
-          <a href="/">Beranda</a>
-          <a href="#layanan">Layanan</a>
-          <a href="#proses">Tentang Kami</a>
-          <a href="#lacak">Bantuan</a>
-        </div>
-
-        <div className="footer-social">
-          <a href="/pelanggan">Akun pelanggan</a>
-          <a href="/admin">Portal admin/penjahit</a>
-        </div>
-
-        <div className="footer-bottom">
-          <span>© 2026 Jahitlink. Semua hak dilindungi.</span>
-          <span>Menjahit dengan hati, melayani dengan sepenuh hati.</span>
-        </div>
-      </footer>
-
-    </div>
-  );
-}
-
-function CreateOrderModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
-  const measurements = Object.keys(initialForm().measurements);
-  return (
-    <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="create-title">
-        <div className="modal-header"><div><p className="eyebrow">PESANAN BARU</p><h2 id="create-title">Buat pesanan</h2><p>Isi detail pesanan pelanggan.</p></div><button className="close-button" type="button" onClick={onClose} aria-label="Tutup">×</button></div>
-        <form onSubmit={onSubmit}>
-          <div className="form-section"><h3>Informasi pelanggan</h3><div className="form-grid">
-            <label>Nama pelanggan<input name="customer" required placeholder="Contoh: Rina" /></label>
-            <label>Nomor WhatsApp<input name="phone" placeholder="08xx-xxxx-xxxx" /></label>
-            <label className="full">Alamat pelanggan<textarea name="address" rows={2} maxLength={500} placeholder="Nama jalan, nomor rumah, RT/RW, kelurahan, kecamatan, kota" /></label>
-          </div></div>
-          <div className="form-section"><h3>Detail pesanan</h3><div className="form-grid">
-            <label>Jenis layanan<select name="service"><option>Jahit baru</option><option>Permak</option><option>Perbaikan</option></select></label>
-            <label>Pakaian<input name="garment" required placeholder="Contoh: 1 kemeja wanita" /></label>
-            <label className="full">Model<input name="model" placeholder="Lengan, kerah, kancing, dan lainnya" /></label>
-            <label>Bahan<input name="material" placeholder="Jenis dan warna bahan" /></label>
-            <label>Jumlah bahan<input name="materialAmount" placeholder="Contoh: 2 meter" /></label>
-            <label className="full">Catatan<textarea name="note" rows={2} placeholder="Catatan khusus untuk pesanan" /></label>
-          </div></div>
-          <div className="form-section"><h3>Ukuran badan <small>cm</small></h3><div className="form-grid three">
-            {measurements.map((label) => <label key={label}>{label}<input name={`measurement:${label}`} type="number" min="0" step="0.1" placeholder="—" /></label>)}
-          </div></div>
-          <div className="form-section"><h3>Jadwal dan pembayaran</h3><div className="form-grid">
-            <label>Tanggal fitting<input name="fittingDate" type="date" /></label>
-            <label>Target siap diambil<input name="dueDate" type="date" /></label>
-            <label>Total biaya (Rp)<input name="total" type="number" min="1" required placeholder="180000" /></label>
-            <label>DP diterima (Rp)<input name="deposit" type="number" min="0" placeholder="0" /></label>
-            <label>Metode DP<select name="paymentMethod"><option>Tunai</option><option>Transfer bank</option><option>QRIS</option></select></label>
-          </div></div>
-          <div className="modal-footer"><button className="button button-secondary" type="button" onClick={onClose}>Batal</button><button className="button button-primary" type="submit">Buat pesanan</button></div>
-        </form>
-      </section>
-    </div>
-  );
-}
-
-function TrackingPage({ order, embedded = false }: { order: TrackingOrder; embedded?: boolean }) {
-  const latest = order.progress.at(-1);
-  const balance = Math.max(0, order.total - order.paid);
-  return (
-    <main className={`tracking-page tracking-detail-page ${embedded ? "embedded" : ""}`}>
-      {!embedded && <header className="tracking-header"><a className="brand" href="/"><span className="brand-mark">J</span><span>jahit<span className="brand-accent">link</span></span></a><span className="tracking-label">PELACAKAN PESANAN</span></header>}
-      <div className="tracking-content tracking-detail-content">
-        <a className="tracking-back-link" href="/pelanggan">← Kembali</a>
-        <div className="tracking-detail-heading">
-          <div>
-            <p className="eyebrow">PESANAN {order.id}</p>
-            <h1>Detail Pesanan</h1>
-          </div>
-          <StatusBadge status={latest?.status ?? "Menunggu pengerjaan"} />
-        </div>
-        <div className="tracking-detail-grid">
-          <div className="tracking-detail-main">
-            <section className="panel tracking-order">
-              <div className="tracking-order-overview">
-                <img className="tracking-order-image" src="/garment-dress.svg" alt="" />
-                <div className="tracking-order-info">
-                  <p className="eyebrow">INFORMASI PESANAN</p>
-                  <h2>{order.garment}</h2>
-                  <div><span>Jenis layanan</span><strong>{order.service}</strong></div>
-                  <div><span>Tanggal pesanan</span><strong>{formatDate(order.createdAt)}</strong></div>
-                  <div><span>Estimasi selesai</span><strong>{formatDate(order.dueDate)}</strong></div>
-                  {order.fittingDate && <div><span>Jadwal fitting</span><strong>{formatDate(order.fittingDate)}</strong></div>}
-                </div>
-              </div>
-              {order.model && <div className="tracking-order-model"><span>Model</span><strong>{order.model}</strong></div>}
-            </section>
-            <section className="panel tracking-timeline">
-              <div className="tracking-section-heading">
-                <div className="section-icon green">◷</div>
-                <div><h2>Progres Jahitan</h2><p>Pembaruan dari penjahit</p></div>
-              </div>
-              <div className="timeline">
-                {[...order.progress].reverse().map((entry, index) => (
-                  <div className="timeline-entry" key={`${entry.date}-${index}`}>
-                    <span className={`timeline-dot ${index === 0 ? "current" : ""}`} />
-                    <div><div className="timeline-head"><strong>{entry.status}</strong><time>{formatDate(entry.date)}</time></div><p>{entry.note || "Progres pesanan diperbarui."}</p></div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          </div>
-          <aside className="tracking-detail-side">
-            <section className="customer-balance-card">
-              <div className="customer-balance-icon">Rp</div>
-              <div><span>{order.total <= 0 ? "ESTIMASI BIAYA" : "SISA PEMBAYARAN"}</span><strong>{order.total <= 0 ? "Menunggu konfirmasi" : formatCurrency(balance)}</strong><p>{order.total <= 0 ? "Penjahit akan mengonfirmasi biaya setelah meninjau permintaan." : balance === 0 ? "Pesanan sudah lunas." : "Silakan lunasi kepada penjahit saat pembayaran."}</p></div>
-              {order.total > 0 && <span className={`payment-status ${balance === 0 ? "paid" : ""}`}>{balance === 0 ? "Lunas" : "Belum lunas"}</span>}
-            </section>
-            <div className="privacy-message">Informasi kontak dan ukuran badan tidak ditampilkan pada tautan pelacakan ini.</div>
-          </aside>
-        </div>
-      </div>
-      {!embedded && <footer className="tracking-footer">Dikelola dengan <strong>jahitlink</strong></footer>}
-    </main>
-  );
-}
-
-function NotFoundPage() {
-  return <main className="not-found"><a className="brand" href="/"><span className="brand-mark">J</span><span>jahit<span className="brand-accent">link</span></span></a><h1>Pesanan tidak ditemukan</h1><p>Periksa kembali tautan pelacakan atau hubungi penjahit.</p><a className="button button-primary" href="/">Kembali</a></main>;
-}
-
-export default App;
