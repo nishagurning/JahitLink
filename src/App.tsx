@@ -133,6 +133,16 @@ const getStatusBadgeClass = (status: string) => {
   }
 };
 
+const getGarmentImage = (garment: string, service: string) => {
+  const g = garment.toLowerCase();
+  if (g.includes('kebaya') || g.includes('gaun') || g.includes('dress')) {
+    return '/gaun.png'; // sesuaikan dengan nama file di public/
+  }
+  if (service === 'Permak') return '/permak pakaian.png';
+  if (service === 'Perbaikan') return '/perbaiki baju.png';
+  return '/jahit pakaian.png'; // gambar default jika tidak cocok
+};
+
 const getProgressStepIndex = (status: string) => {
   switch (status) {
     case 'Menunggu konfirmasi':
@@ -993,7 +1003,7 @@ export default function App() {
       );
     }
 
-  // =========================================================
+// =========================================================
   // 5. DETAIL / PELACAKAN PESANAN
   // =========================================================
   if (view === 'order-detail' && selectedOrder) {
@@ -1029,7 +1039,7 @@ export default function App() {
           <div className="detail-top-grid">
             <div className="card garment-detail-card">
               <img
-                src="/garment-dress.svg"
+                src={getGarmentImage(selectedOrder.garment, selectedOrder.service)}
                 alt={selectedOrder.garment}
                 className="garment-thumb-lg"
               />
@@ -1063,17 +1073,19 @@ export default function App() {
             </div>
 
             <div className="card payment-summary-card">
-              <span className="payment-label">Sisa Pembayaran</span>
-              <div className="payment-amount">{formatRupiah(remaining)}</div>
-              <p className="muted-text">
-                {isPaid
-                  ? 'Pembayaran telah lunas. Terima kasih!'
-                  : `Total biaya ${formatRupiah(selectedOrder.total)} • Sudah dibayar ${formatRupiah(
-                      selectedOrder.paid
-                    )}`}
-              </p>
+              <div>
+                <span className="payment-label">Sisa Pembayaran</span>
+                <div className="payment-amount">{formatRupiah(remaining)}</div>
+                <p className="muted-text">
+                  {isPaid
+                    ? `Total biaya ${formatRupiah(selectedOrder.total)} telah dibayar penuh.`
+                    : `Total biaya ${formatRupiah(selectedOrder.total)} • Sudah dibayar ${formatRupiah(
+                        selectedOrder.paid
+                      )}`}
+                </p>
+              </div>
               <div className={`payment-pill ${isPaid ? 'paid' : 'unpaid'}`}>
-                Rp {isPaid ? 'Lunas' : 'Belum lunas'}
+                {isPaid ? '✓ Pembayaran Lunas' : 'Belum Lunas'}
               </div>
             </div>
           </div>
@@ -1099,24 +1111,24 @@ export default function App() {
             </div>
 
             {selectedOrder.progress.length > 0 && (
-              <div style={{ marginTop: 24, borderTop: '1px solid #e5ece8', paddingTop: 16 }}>
-                <h4 style={{ margin: '0 0 10px' }}>Riwayat Catatan Progres</h4>
-                {selectedOrder.progress.map((item, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      padding: '6px 0',
-                      fontSize: '0.88rem',
-                    }}
-                  >
-                    <span>
-                      <strong>{item.status}</strong> — {item.note}
-                    </span>
-                    <span className="muted-text">{item.date}</span>
-                  </div>
-                ))}
+              <div className="progress-history">
+                <h4>Riwayat Catatan Progres</h4>
+                <div className="history-list">
+                  {[...selectedOrder.progress].reverse().map((item, i) => (
+                    <div key={i} className="history-item">
+                      <div className="history-left">
+                        <span className="history-dot" />
+                        <div>
+                          <span className={getStatusBadgeClass(item.status)}>
+                            {item.status}
+                          </span>
+                          <p className="history-note">{item.note}</p>
+                        </div>
+                      </div>
+                      <span className="muted-text">{item.date}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -1216,7 +1228,7 @@ export default function App() {
                       {customerOrders.map((order) => (
                         <div key={order.id} className="customer-order-row">
                           <img
-                            src="/garment-dress.svg"
+                            src={getGarmentImage(order.garment, order.service)}
                             alt={order.garment}
                             className="order-thumb-sm"
                           />
