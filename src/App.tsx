@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { ClipboardList, Clock, CheckCircle2, Wallet } from 'lucide-react';
 
 type View =
   | 'landing'
@@ -900,10 +901,15 @@ export default function App() {
               ? 'Belum ada akun admin di database. Buat akun admin studio sekarang (kata sandi minimal 10 karakter).'
               : 'Masuk untuk membuat dan mengelola pesanan jahit.'}
           </p>
-
+          
           <form onSubmit={handleAdminSubmit} className="auth-form">
             <div className="input-group">
-              <span className="input-icon">👤</span>
+              <span className="input-icon" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+                  <circle cx="12" cy="7" r="4" />
+                </svg>
+              </span>
               <input
                 type="text"
                 placeholder="Nama pengguna atau email"
@@ -912,8 +918,14 @@ export default function App() {
                 required
               />
             </div>
+
             <div className="input-group">
-              <span className="input-icon">🔒</span>
+              <span className="input-icon" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                </svg>
+              </span>
               <input
                 type="password"
                 placeholder={
@@ -924,6 +936,7 @@ export default function App() {
                 required
               />
             </div>
+
             {authError && <p className="error-text">{authError}</p>}
             <button type="submit" className="btn-primary full-width" disabled={authLoading}>
               {authLoading
@@ -980,11 +993,16 @@ export default function App() {
                 Daftar
               </button>
             </div>
-
-            <form onSubmit={handleCustomerSubmit} className="auth-form">
+            
+          <form onSubmit={handleCustomerSubmit} className="auth-form">
               {customerTab === 'register' && (
                 <div className="input-group">
-                  <span className="input-icon">👤</span>
+                  <span className="input-icon" aria-hidden="true">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+                      <circle cx="12" cy="7" r="4" />
+                    </svg>
+                  </span>
                   <input
                     type="text"
                     placeholder="Nama lengkap"
@@ -994,18 +1012,30 @@ export default function App() {
                   />
                 </div>
               )}
+
               <div className="input-group">
-                <span className="input-icon">📞</span>
+                <span className="input-icon" aria-hidden="true">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+                  </svg>
+                </span>
                 <input
                   type="text"
+                  inputMode="numeric"
                   placeholder="Nomor HP (8–15 digit)"
                   value={custPhoneInput}
                   onChange={(e) => setCustPhoneInput(e.target.value)}
                   required
                 />
               </div>
+
               <div className="input-group">
-                <span className="input-icon">🔒</span>
+                <span className="input-icon" aria-hidden="true">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                  </svg>
+                </span>
                 <input
                   type="password"
                   placeholder={
@@ -1018,6 +1048,7 @@ export default function App() {
                   required
                 />
               </div>
+
               {authError && <p className="error-text">{authError}</p>}
               <button type="submit" className="btn-primary full-width" disabled={authLoading}>
                 {authLoading
@@ -1514,37 +1545,49 @@ export default function App() {
                   + Pesanan baru
                 </button>
               </div>
-
+              
               <div className="stats-grid">
                 <div className="stat-card">
-                  <div className="stat-icon blue">📄</div>
-                  <div>
-                    <span className="stat-label">Total pesanan</span>
-                    <strong className="stat-value">{adminStats.total}</strong>
+                  <div className="stat-icon blue">
+                    <ClipboardList size={20} strokeWidth={2.2} />
+                    </div>
+                    <div>
+                      <span className="stat-label">Total pesanan</span>
+                      <strong className="stat-value">{adminStats.total}</strong>
+                      </div>
                   </div>
-                </div>
-                <div className="stat-card">
-                  <div className="stat-icon amber">🕒</div>
-                  <div>
-                    <span className="stat-label">Sedang dikerjakan</span>
-                    <strong className="stat-value">{adminStats.inProgress}</strong>
+                  
+              <div className="stat-card">
+                <div className="stat-icon amber">
+                  <Clock size={20} strokeWidth={2.2} />
                   </div>
-                </div>
-                <div className="stat-card">
-                  <div className="stat-icon green">✓</div>
-                  <div>
-                    <span className="stat-label">Siap diambil / fitting</span>
-                    <strong className="stat-value">{adminStats.ready}</strong>
-                  </div>
-                </div>
-                <div className="stat-card">
-                  <div className="stat-icon purple">Rp</div>
-                  <div>
-                    <span className="stat-label">Belum lunas</span>
-                    <strong className="stat-value">{adminStats.unpaid}</strong>
-                  </div>
+              
+              <div>
+                <span className="stat-label">Sedang dikerjakan</span>
+                <strong className="stat-value">{adminStats.inProgress}</strong>
                 </div>
               </div>
+              
+            <div className="stat-card">
+              <div className="stat-icon green">
+                <CheckCircle2 size={20} strokeWidth={2.2} />
+              </div>
+            <div>
+              <span className="stat-label">Siap diambil / fitting</span>
+              <strong className="stat-value">{adminStats.ready}</strong>
+          </div>
+        </div>
+        
+            <div className="stat-card">
+              <div className="stat-icon purple">
+                <Wallet size={20} strokeWidth={2.2} />
+              </div>
+            <div>
+              <span className="stat-label">Belum lunas</span>
+              <strong className="stat-value">{adminStats.unpaid}</strong>
+            </div>
+          </div>
+        </div>
 
               <div className="card table-card">
                 <div className="table-toolbar">

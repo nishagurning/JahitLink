@@ -543,6 +543,29 @@ button {
   border-radius: 10px;
   padding: 10px 14px;
   background: #fff;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.input-group:focus-within {
+  border-color: var(--emerald-800);
+  box-shadow: 0 0 0 3px rgba(20, 77, 59, 0.1);
+}
+
+.input-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: color 0.2s;
+}
+
+.input-group:focus-within .input-icon {
+  color: var(--emerald-800);
+}
+
+.auth-tabs button:focus {
+  outline: none;
 }
 
 .input-group input {
@@ -1183,27 +1206,33 @@ button {
 .stat-card {
   background: #fff;
   border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 16px;
+  border-radius: 16px;
+  padding: 18px 20px;
   display: flex;
   align-items: center;
   gap: 14px;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
 }
 
 .stat-icon {
-  width: 42px;
-  height: 42px;
+  width: 46px;
+  height: 46px;
   border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: 700;
+  flex-shrink: 0;
 }
 
-.stat-icon.blue { background: #e1effe; color: #1e429f; }
-.stat-icon.amber { background: #fef3c7; color: #92400e; }
-.stat-icon.green { background: #def7ec; color: #03543f; }
-.stat-icon.purple { background: #ede9fe; color: #5b21b6; }
+.stat-icon.blue   { background: #eff6ff; color: #1d4ed8; border: 1px solid #dbeafe; }
+.stat-icon.amber  { background: #fffbeb; color: #b45309; border: 1px solid #fef3c7; }
+.stat-icon.green  { background: #ecfdf5; color: #047857; border: 1px solid #d1fae5; }
+.stat-icon.purple { background: #f5f3ff; color: #6d28d9; border: 1px solid #ede9fe; }
 
 .stat-label {
   display: block;
