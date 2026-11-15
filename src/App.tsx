@@ -57,6 +57,8 @@ interface AdminOrder {
   note: string;
   measurements: Record<string, string>;
   pickedUpAt: string | null;
+  modelImage?: string;
+  note?: string;
 }
 
 interface CustomerOrderSummary {
@@ -82,6 +84,8 @@ interface TrackedOrder {
   fittingDate: string;
   total: number;
   paid: number;
+  modelImage?: string;
+  note?: string;
   progress: ProgressItem[];
 }
 
@@ -105,6 +109,34 @@ const STEPPER_LABELS = [
 ];
 
 const formatRupiah = (amount: number) => `Rp${(amount || 0).toLocaleString('id-ID')}`;
+const onlyDigits = (value: string) => value.replace(/\D/g, '');
+const onlyLetters = (value: string) => value.replace(/[^a-zA-Z\s]/g, '');
+
+const compressImageToDataUrl = (
+  file: File,
+  maxWidth = 700,
+  quality = 0.75
+): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxWidth / img.width);
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return reject(new Error('Gagal memproses gambar.'));
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = () => reject(new Error('File bukan gambar yang valid.'));
+      img.src = String(reader.result);
+    };
+    reader.onerror = () => reject(new Error('Gagal membaca file.'));
+    reader.readAsDataURL(file);
+  });
 
 const getInitials = (name: string) =>
   name
@@ -422,6 +454,18 @@ export default function App() {
   const handleCreateOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     setAdminFeedback('');
+    if (newOrder.phone && (newOrder.phone.length < 8 || newOrder.phone.length > 15)) {
+      setAdminFeedback('Nomor HP pelanggan harus berisi 8–15 digit angka.');
+      return;
+    }
+    if (Number(newOrder.total) <= 0) {
+      setAdminFeedback('Total biaya harus lebih dari Rp0.');
+      return;
+    }
+    if (Number(newOrder.deposit || 0) > Number(newOrder.total)) {
+      setAdminFeedback('Uang muka / DP tidak boleh melebihi total biaya.');
+      return;
+    }
     try {
       const measurements: Record<string, string> = {};
       newOrder.measurementsText
@@ -1039,10 +1083,13 @@ export default function App() {
           <div className="detail-top-grid">
             <div className="card garment-detail-card">
               <img
-                src={getGarmentImage(selectedOrder.garment, selectedOrder.service)}
-                alt={selectedOrder.garment}
-                className="garment-thumb-lg"
-              />
+              src={
+                selectedOrder.modelImage ||
+                getGarmentImage(selectedOrder.garment, selectedOrder.service)
+              }
+              alt={selectedOrder.garment}
+              className="garment-thumb-lg"
+            />
               <div className="garment-meta">
                 <h2>{selectedOrder.garment}</h2>
                 <ul>
@@ -1277,16 +1324,113 @@ export default function App() {
               </section>
             </>
           )}
-
+          
           {customerNav === 'profil' && (
-            <div className="card">
-              <h2>Profil Saya</h2>
-              <p>
-                <strong>Nama:</strong> {customerUser.name}
-              </p>
-              <p>
-                <strong>Nomor HP:</strong> {customerUser.phone}
-              </p>
+            <div className="profile-layout">
+              {/* Kartu Header Profil */}
+              <div className="card profile-hero-card">
+                <div className="profile-hero-left">
+                  <div className="profile-avatar-lg">
+                    {getInitials(customerUser.name)}
+                  </div>
+                  <div>
+                    <span className="eyebrow-pill" style={{ marginBottom: 8 }}>
+                      AKUN PELANGGAN
+                    </span>
+                    <h2 className="profile-name">{customerUser.name}</h2>
+                    <p className="muted-text" style={{ margin: 0 }}>
+                      {customerUser.phone} • ID Pelanggan #{customerUser.id}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  className="btn-primary"
+                  onClick={() => setCustomerNav('pesanan')}
+                >
+                  Lihat Pesanan Saya →
+                </button>
+              </div>
+
+              {/* Grid Informasi Akun & Ringkasan */}
+              <div className="profile-grid">
+                <div className="card">
+                  <div className="card-header-row">
+                    <h3>Informasi Akun</h3>
+                    <span className="badge badge-green">Aktif</span>
+                  </div>
+
+                  <div className="profile-info-list">
+                    <div className="profile-info-item">
+                      <span className="profile-info-label">Nama Lengkap</span>
+                      <strong className="profile-info-value">
+                        {customerUser.name}
+                      </strong>
+                    </div>
+                    <div className="profile-info-item">
+                      <span className="profile-info-label">Nomor HP / WhatsApp</span>
+                      <strong className="profile-info-value">
+                        {customerUser.phone}
+                      </strong>
+                    </div>
+                    <div className="profile-info-item">
+                      <span className="profile-info-label">Status Tautan Studio</span>
+                      <strong className="profile-info-value">
+                        Terhubung dengan JahitLink
+                      </strong>
+                    </div>
+                  </div>
+
+                  <p className="profile-note">
+                    Gunakan nomor HP di atas saat memesan di studio agar admin dapat
+                    menautkan progres jahitan langsung ke akun Anda.
+                  </p>
+                </div>
+
+                <div className="card profile-summary-card">
+                  <div>
+                    <div className="card-header-row">
+                      <h3>Ringkasan Pesanan</h3>
+                    </div>
+
+                    <div className="profile-stats-row">
+                      <div className="profile-stat-box">
+                        <span className="profile-stat-num">
+                          {customerOrders.length}
+                        </span>
+                        <span className="profile-stat-label">Total</span>
+                      </div>
+                      <div className="profile-stat-box">
+                        <span className="profile-stat-num">
+                          {customerOrders.filter((o) => o.status !== 'Selesai').length}
+                        </span>
+                        <span className="profile-stat-label">Diproses</span>
+                      </div>
+                      <div className="profile-stat-box">
+                        <span className="profile-stat-num">
+                          {customerOrders.filter((o) => o.status === 'Selesai').length}
+                        </span>
+                        <span className="profile-stat-label">Selesai</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="profile-actions">
+                    <button
+                      className="btn-outline full-width"
+                      onClick={() => setCustomerNav('bantuan')}
+                    >
+                      Butuh Bantuan / Ubah Data? Hubungi Studio
+                    </button>
+                    <button
+                      className="btn-ghost full-width"
+                      style={{ color: '#9b1c1c' }}
+                      onClick={handleLogoutCustomer}
+                    >
+                      Keluar dari Akun
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
@@ -1536,30 +1680,42 @@ export default function App() {
                 <label>
                   Nama Pelanggan *
                   <input
+                    type="text"
                     className="input-field"
                     required
                     placeholder="Contoh: Rina"
                     value={newOrder.customer}
-                    onChange={(e) => setNewOrder({ ...newOrder, customer: e.target.value })}
+                    onChange={(e) =>
+                      setNewOrder({ ...newOrder, customer: onlyLetters(e.target.value) })
+                  }
                   />
                 </label>
                 <label>
                   Nomor HP Pelanggan
                   <input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={15}
                     className="input-field"
                     placeholder="081234567890"
                     value={newOrder.phone}
-                    onChange={(e) => setNewOrder({ ...newOrder, phone: e.target.value })}
+                    onChange={(e) =>
+                      setNewOrder({
+                        ...newOrder,
+                        phone: onlyDigits(e.target.value).slice(0, 15),
+                      })}
                   />
                 </label>
                 <label>
                   Nama Pakaian *
                   <input
+                    type="text"
                     className="input-field"
                     required
                     placeholder="Contoh: Kemeja Wanita"
                     value={newOrder.garment}
-                    onChange={(e) => setNewOrder({ ...newOrder, garment: e.target.value })}
+                    onChange={(e) =>
+                      setNewOrder({ ...newOrder, garment: onlyLetters(e.target.value) })}
                   />
                 </label>
                 <label>
@@ -1602,23 +1758,28 @@ export default function App() {
                 <label>
                   Total Biaya (Rp) *
                   <input
-                    type="number"
-                    min={1}
+                    type="text"
+                    inputMode="numeric"
                     required
                     className="input-field"
                     placeholder="180000"
                     value={newOrder.total}
-                    onChange={(e) => setNewOrder({ ...newOrder, total: e.target.value })}
+                    onChange={(e) =>
+                      setNewOrder({ ...newOrder, total: onlyDigits(e.target.value) })}
                   />
                 </label>
                 <label>
                   Uang Muka / DP (Rp)
                   <input
-                    type="number"
-                    min={0}
+                    type="text"
+                    inputMode="numeric"
                     className="input-field"
+                    placeholder="0"
                     value={newOrder.deposit}
-                    onChange={(e) => setNewOrder({ ...newOrder, deposit: e.target.value })}
+                    onChange={(e) =>
+                      setNewOrder({
+                        ...newOrder,
+                        deposit: onlyDigits(e.target.value),})}
                   />
                 </label>
                 <label>
@@ -1649,16 +1810,70 @@ export default function App() {
                     }
                   />
                 </label>
-                <label className="full-span">
-                  Catatan Model / Bahan
-                  <textarea
-                    className="input-field"
-                    rows={2}
-                    placeholder="Detail model, warna kain, catatan khusus..."
-                    value={newOrder.note}
-                    onChange={(e) => setNewOrder({ ...newOrder, note: e.target.value })}
-                  />
-                </label>
+                <div className="full-span">
+                  <label>
+                    Catatan Model / Bahan
+                    <textarea
+                      className="input-field"
+                      rows={2}
+                      placeholder="Detail model, warna kain, catatan khusus..."
+                      value={newOrder.note}
+                      onChange={(e) =>
+                        setNewOrder({ ...newOrder, note: e.target.value })
+                      }
+                    />
+                  </label>
+
+                  <div className="model-upload-box">
+                    <div className="model-upload-info">
+                      <strong>Foto Referensi Model Baju (Opsional)</strong>
+                      <span className="muted-xs">
+                        Unggah gambar contoh model baju yang akan dijahit (JPG/PNG).
+                      </span>
+                      <label className="btn-outline btn-sm upload-trigger">
+                        {newOrder.modelImage ? 'Ganti Gambar' : '+ Pilih Gambar Model'}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          hidden
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            try {
+                              const dataUrl = await compressImageToDataUrl(file);
+                              setNewOrder((prev) => ({ ...prev, modelImage: dataUrl }));
+                            } catch (err) {
+                              setAdminFeedback(
+                                err instanceof Error
+                                  ? err.message
+                                  : 'Gagal memuat gambar.'
+                              );
+                            }
+                          }}
+                        />
+                      </label>
+                    </div>
+
+                    {newOrder.modelImage && (
+                      <div className="model-preview-wrap">
+                        <img
+                          src={newOrder.modelImage}
+                          alt="Preview model baju"
+                          className="model-preview-img"
+                        />
+                        <button
+                          type="button"
+                          className="btn-outline btn-xs"
+                          onClick={() =>
+                            setNewOrder((prev) => ({ ...prev, modelImage: '' }))
+                          }
+                        >
+                          Hapus
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
 
                 <div className="full-span form-submit-row">
                   <button type="submit" className="btn-primary">
