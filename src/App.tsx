@@ -667,22 +667,13 @@ export default function App() {
             </nav>
             <div className="nav-actions">
               <button
-                className="btn-ghost"
-                onClick={() => {
-                  setAuthError('');
-                  setView('portal');
-                }}
-              >
-                Masuk
-              </button>
-              <button
                 className="btn-primary"
                 onClick={() => {
                   setAuthError('');
                   setView('portal');
                 }}
               >
-                Mulai Pesanan →
+                Masuk
               </button>
             </div>
           </div>
@@ -1269,7 +1260,27 @@ export default function App() {
             <>
               <section className="welcome-banner">
                 <div className="welcome-copy">
-                  <h1>Halo, {customerUser.name}! 👋</h1>
+                  <h1 className="welcome-title">
+                    Halo, {customerUser.name}!
+                    <span className="wave-badge" aria-hidden="true">
+                      <svg
+                      className="wave-svg"
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.1"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      >
+                        <path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2" />
+                        <path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2" />
+                        <path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8" />
+                        <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" />
+                        </svg>
+                        </span>
+                      </h1>
                   <p>Pantau progres jahitan Anda dengan mudah di JahitLink.</p>
                   <button
                     className="btn-primary"
@@ -1596,14 +1607,29 @@ export default function App() {
                     <span className="muted-text">{filteredAdminOrders.length} pesanan</span>
                   </div>
                   <div className="search-box">
-                    <span>🔍</span>
+                    <span className="search-icon" aria-hidden="true">
+                      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="11" cy="11" r="8" />
+                        <path d="m21 21-4.3-4.3" />
+                        </svg>
+                      </span>
                     <input
-                      type="text"
-                      placeholder="Cari nama atau nomor..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                    />
-                  </div>
+                    type="text"
+                    placeholder="Cari nama atau nomor..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                  {searchQuery && (
+                    <button
+                    type="button"
+                    className="search-clear-btn"
+                    onClick={() => setSearchQuery('')}
+                    aria-label="Hapus pencarian"
+                    >
+                      ×
+                      </button>
+                    )}
+                    </div>
                 </div>
 
                 <div className="filter-tabs">

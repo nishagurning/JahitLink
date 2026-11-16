@@ -1259,18 +1259,63 @@ button {
 .search-box {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 8px 12px;
-  min-width: 240px;
+  padding: 9px 14px;
+  min-width: 260px;
+  background: var(--bg-page);
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+}
+
+.search-box:focus-within {
+  background: #fff;
+  border-color: var(--emerald-800);
+  box-shadow: 0 0 0 3px rgba(20, 77, 59, 0.1);
+}
+
+.search-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: color 0.2s;
+}
+
+.search-box:focus-within .search-icon {
+  color: var(--emerald-800);
 }
 
 .search-box input {
   border: none;
   outline: none;
   width: 100%;
+  background: transparent;
   font-family: inherit;
+  font-size: 0.9rem;
+  color: var(--text-main);
+}
+
+.search-clear-btn {
+  border: none;
+  background: #e5ece8;
+  color: var(--text-muted);
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.search-clear-btn:hover {
+  background: var(--emerald-100);
+  color: var(--emerald-900);
 }
 
 .filter-tabs {
@@ -1611,4 +1656,35 @@ button {
   border-radius: 10px;
   border: 1px solid var(--border);
   background: #fff;
+}
+
+.welcome-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  text-transform: capitalize;
+}
+
+.wave-badge {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--emerald-100);
+  color: var(--emerald-800);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.wave-svg {
+  transform-origin: 70% 75%;
+  animation: wave-hand 2.2s ease-in-out infinite;
+}
+
+@keyframes wave-hand {
+  0%, 60%, 100% { transform: rotate(0deg); }
+  15% { transform: rotate(14deg); }
+  30% { transform: rotate(-8deg); }
+  45% { transform: rotate(12deg); }
 }
